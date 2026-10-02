@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "AI ScreenShot Bridge",
+  "version": "0.1.1",
+  "description": "将 Windows 截图和提示词发送到 ChatGPT 新对话。",
+  "permissions": ["nativeMessaging", "scripting", "tabs", "storage", "alarms"],
+  "host_permissions": ["https://chatgpt.com/*"],
+  "background": {"service_worker": "background.js", "type": "module"},
+  "action": {"default_popup": "popup.html"}
+}
