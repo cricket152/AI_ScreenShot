@@ -45,7 +45,7 @@ internal sealed class ToolbarWindow : Window
         border.AddHandler(UIElement.KeyDownEvent,new KeyEventHandler((_,e)=>{if(e.Key==VirtualKey.Escape&&!IsSending){app.EndCaptureSession();e.Handled=true;}}),true);
         close.Click+=(_,_)=>app.EndCaptureSession();retake.Click+=(_,_)=>app.BeginCapture();
         codex.Click+=async(_,_)=>await SendAsync("Codex");chatgpt.Click+=async(_,_)=>await SendAsync("ChatGPT");
-        copy.Click+=(_,_)=>{try{ClipboardService.Image(png);status.Text="图片已复制";}catch(Exception e){status.Text=e.Message;}};
+        copy.Click+=async(_,_)=>{try{await ClipboardService.ImageAsync(png);status.Text="图片已复制";}catch(Exception e){status.Text=e.Message;}};
         save.Click+=async(_,_)=>await SaveAsync();
         var projects=new MenuFlyout();codex.Flyout=projects;
         projects.Opening+=async(_,_)=>
@@ -57,16 +57,20 @@ internal sealed class ToolbarWindow : Window
                 foreach(var workspace in list)
                 {
                     var item=new MenuFlyoutItem{Text=(app.Settings.Workspace==workspace.Name?"✓ ":"")+workspace.Name};
-                    item.Click+=(_,_)=>{app.Settings.Workspace=workspace.Name;app.Settings.Save();status.Text="Codex 工作区："+workspace.Name;};projects.Items.Add(item);
+                    item.Click+=(_,_)=>{if(app.Codex.IsProvider&&workspace.DirectoryPath!=null)CodexDirectoryPicker.Select(app.Settings,workspace.DirectoryPath);else{app.Settings.Workspace=workspace.Name;app.Settings.Save();}status.Text="Codex："+workspace.Name;};projects.Items.Add(item);
                 }
-                if(list.Count==0)projects.Items.Add(new MenuFlyoutItem{Text="没有可识别的唯一工作区",IsEnabled=false});
+                if(app.Codex.IsProvider)
+                {
+                    var choose=new MenuFlyoutItem{Text="选择工作目录…"};choose.Click+=async(_,_)=>{try{if(await CodexDirectoryPicker.PickAsync(this,app.Settings))status.Text="Codex 工作目录已选择";}catch(Exception error){status.Text=error.Message;}};projects.Items.Add(choose);
+                }
+                else if(list.Count==0)projects.Items.Add(new MenuFlyoutItem{Text="没有可识别的唯一工作区",IsEnabled=false});
             }
             catch(Exception e){projects.Items.Clear();projects.Items.Add(new MenuFlyoutItem{Text="无法读取，请打开 Codex 项目列表",IsEnabled=false});status.Text=e.Message;}
         };
         var menu=new MenuFlyout();
         void Add(string text,Action action){var item=new MenuFlyoutItem{Text=text};item.Click+=(_,_)=>action();menu.Items.Add(item);}
         Add("发送到两端",async()=>{await SendAsync("ChatGPT");string browserResult=status.Text;await SendAsync("Codex",false);status.Text="ChatGPT："+browserResult+"；Codex："+status.Text;});
-        Add("复制提示词",()=>{ClipboardService.Text(EffectivePrompt);status.Text="提示词已复制";});
+        Add("复制提示词",async()=>{try{await ClipboardService.TextAsync(EffectivePrompt);status.Text="提示词已复制";}catch(Exception e){status.Text=e.Message;}});
         Add("设置",()=>{app.EndCaptureSession();app.ShowSettings();});more.Flyout=menu;
         Closed+=(_,_)=>{app.EndCaptureSession();app.Toolbar=null;};
     }
@@ -104,9 +108,9 @@ internal sealed class ToolbarWindow : Window
     {
         if(sending)return;
         if(submittedTargets.Contains(target)){status.Text=target+" 已提交或结果未知，本次截图不会再次发送到该目标";return;}
-        if(target=="Codex"&&app.Settings.Workspace==null){status.Text="请从 Codex 下拉菜单选择工作区";return;}
+        if(target=="Codex"&&(app.Codex.IsProvider?app.Settings.CodexDirectory==null:app.Settings.Workspace==null)){status.Text="请从 Codex 下拉菜单选择工作目录";return;}
         sending=true;SetBusy(true);status.Text="正在发送到 "+target;
-        var request=new SendRequest(png,prompt.Text,app.Settings.Workspace is {} name?new Workspace(name):null);
+        var request=new SendRequest(png,prompt.Text,app.Settings.Workspace is {} name?new Workspace(name,app.Settings.CodexDirectory):null);
         app.SetCaptureSessionVisible(false);
         try
         {

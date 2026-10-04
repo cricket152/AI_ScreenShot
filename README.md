@@ -4,21 +4,19 @@ Windows 11 x64 原生托盘截图工具。`.NET 10 + WinUI 3 + Windows App SDK +
 
 ## 运行
 
-运行发布目录中的 `ScreenShot.App.exe`，默认 `Ctrl+Alt+S` 框选；右键托盘打开设置或退出。程序没有复杂主界面。
+运行发布目录中的 `ScreenShot.App.exe`，屏幕右侧显示 52px 的原生悬浮球（尺寸为逻辑像素，随 DPI 缩放）。拖动后吸附到显示器工作区左侧或右侧；左键展开工具栏和消息栏目，右键选择隐藏或设置。隐藏后可通过托盘“显示悬浮球”恢复。默认 `Ctrl+Alt+S` 框选，托盘也提供截图、设置和退出。
 
-启动截图后，无边框顶层 Overlay 覆盖整个虚拟桌面（所有显示器），冻结当前画面并显示半透明深色遮罩，鼠标为十字准星。拖动时按物理像素绘制原亮度选区；松开后保留选区，在下方居中弹出工具栏，空间不足时移到上方并限制在目标显示器工作区内。可以直接在遮罩上重新框选；零面积拖动不确认截图。`Esc`、遮罩右键或工具栏“退出截图”同时收起遮罩和工具栏；快捷键或“重新截图”会重新获取桌面。
+第一版悬浮面板使用原生 WinUI 控件、系统浅色/深色主题、图标提示和无障碍名称。上方横向工具栏为 `Codex | ChatGPT | 复制 | 另存为 | 更多`，基准尺寸 360 × 56px；下方消息栏目为 520 × 540px。两者左边缘对齐，间距为 12px，在小工作区内限制窗口尺寸。消息标题栏选择 Codex 工作目录，下方显示状态、对话、当前截图缩略图及提示词输入框。
 
-工具栏参考 [WinUI 3 Gallery CommandBar 示例](https://github.com/microsoft/WinUI-Gallery/blob/main/WinUIGallery/Samples/CommandBar/CommandBarPage.xaml)，使用原生 `CommandBar` / `AppBarButton`、主题资源、圆角、图标提示和无障碍名称。布局为：
+用户截图和提示词显示在左侧气泡，Codex 回复显示在右侧气泡。左键点击缩略图可打开可缩放的截图详情。本工具的消息面板只保留内存中的最多 24 个气泡；已发送的 Codex 会话由 Codex 自身保存。“更多”可清空消息、发送到两端、复制提示词、退出截图或打开设置。收起按钮和面板内 `Esc` 收起面板并退出截图，当前图片和消息仍可在下次展开时查看。
 
-`提示词输入框 | Codex ▾ | ChatGPT`
+启动截图前隐藏自身悬浮窗口。无边框顶层 Overlay 覆盖整个虚拟桌面（所有显示器），冻结当前画面并显示半透明深色遮罩，鼠标为十字准星。拖动时按物理像素绘制原亮度选区；松开后保留选区，并在悬浮球附近展开面板。可以直接在遮罩上重新框选；零面积拖动不确认截图。遮罩上的 `Esc` 或右键退出；快捷键或“截取屏幕”重新获取桌面。
 
-`选区像素尺寸 | 复制 | 保存 | 重新截图 | 更多 | 退出截图`
-
-发送和保存对话框期间临时隐藏遮罩与工具栏。点击 Codex 主按钮并确认发送成功后退出截图状态；发送失败或结果未知时恢复截图与反馈，禁止对未知结果自动重发。ChatGPT、发送到两端及保存结束后仍恢复反馈；截图模式已被取消时不再恢复。
+点击 Codex 后退出截图遮罩，保留当前图片、工具栏和消息栏目；从提交到回复结束始终保持面板可见。确认提交后持续更新provider 的公开工作状态和回复文本，尚无输出时显示“正在思考 / 正在处理”，完成后展示最终回复并结束等待。正文在同一个气泡中更新；处于底部时自动跟随，向上翻阅时保留位置。发送状态与 Codex 回复分别标识，回复等待没有固定超时，生成时间长不会被误判为发送结果未知。失败或真实无法确认的提交仍提供明确反馈，禁止自动重发。ChatGPT 和保存对话框期间仍临时隐藏自身窗口，结束后恢复；ChatGPT 目前只展示发送回执。用户主动收起或关闭面板时，异步完成不会重新打开它。
 
 拖动绘制采用保留的内存缓冲区，仅更新选区变化条带及旧/新边框；鼠标消息记录最新区域，像素合成在 `WM_PAINT` 执行，避免高频鼠标移动反复拷贝整个虚拟桌面。
 
-空提示词使用“请描述并分析这张截图”。Codex 下拉选择已配置的工作区，主按钮发送；ChatGPT 每次新建官网对话。“更多”支持发送到两端及复制提示词。两端独立反馈。已提交或结果未知的目标在当前截图会话不允许再次发送。
+空提示词使用“请描述并分析这张截图”。消息标题栏选择已配置的 Codex 工作目录，工具栏按钮发送；ChatGPT 每次新建官网对话。两端独立反馈。已提交或结果未知的目标对当前图片不允许再次发送；新截图会重置该限制。发送和等待回复期间禁用会改变当前任务的操作，消息栏目中的停止按钮可结束回复读取，不会取消或重发已提交的 Codex 消息。
 
 ## ChatGPT 扩展安装
 
@@ -56,15 +54,23 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\register-extension
 
 ## Codex
 
-打开 Codex 并展开项目列表。只支持 UI Automation 能识别的已配置本地项目；重名项目不自动发送。程序不会修改 Codex 的内部数据库、权限或配置。工作区、输入框、附件或发送结果无法可靠确认时会停止，并保留截图供手动粘贴。
+正常发送现使用 Codex CLI 的公开 App Server provider。无需打开 Codex 桌面窗口；发送后切换、收起或关闭桌面聊天不影响截图工具接收回复。实现参考 Amadeus 的 provider 事件路由，使用 .NET `Process` / JSONL 独立接入，不引入 Python、Electron、Web UI 或新的生产依赖。
 
-Codex 导航或附件上传可能替换输入框，程序会重新读取控件，并对 `UIA_E_ELEMENTNOTAVAILABLE (0x80040201)` 重试读取；点击、粘贴和提交不自动重放。提交前确认提示词已经进入输入框，提交后确认输入框清空及输入框/侧栏之外新增同内容消息，不依赖消息必须是 `Text` 类型。确认成功后退出截图状态。
+1. 安装并登录 Codex CLI。若检测提示未登录，在终端运行 `codex login`。程序复用 CLI 管理的登录，不读取或保存登录令牌。
+2. 在消息标题栏下拉菜单中点击“选择工作目录…”，使用原生文件夹选择器选择目录。最近选择的目录会保留；不会自动把旧的桌面项目名称推测为路径。
+3. 截图并填写提示词，点击 Codex。图片以内存中的 PNG data URL 和提示词一起发送，助手回复在当前气泡中持续更新。
 
-发送失败时，可提供 `%LOCALAPPDATA%/AIScreenShot/diagnostics/codex-send.txt`，包含最近一次失败的时间、阶段、是否尝试提交、异常类型与 HRESULT，不记录截图、提示词、剪贴板或聊天内容。从 Codex 启动程序时，文件可能位于 `%LOCALAPPDATA%/Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Local/AIScreenShot/diagnostics/`。旧版没有此诊断文件。
+留空 CLI 路径时，程序优先使用正在运行的 Codex 桌面内置 `codex.exe`，其次查找已安装的桌面运行时，再回退到 PATH 或标准 npm Windows 安装。设置中的显式 `.exe` 完整路径优先。设置页“检测 Codex provider”检查初始化、登录及所选工作目录的模型配置和图片能力，不创建聊天或发送消息。旧 CLI 的模型目录可能不包含桌面正在使用的新模型；检查失败时请使用桌面内置版本或升级 CLI，程序不会自动更换模型或降低 reasoning effort。
 
-Codex 发送前备份原剪贴板：标准格式使用对应的读取/写入 API，可读自定义格式也会保留，位图和 HTML 资源/自定义流复制到独立内存。仅跳过返回 `CLIPBRD_E_BAD_DATA (0x800401D3)` 的无效格式，这些无法读取的格式无法恢复；非空剪贴板如果没有任何可备份数据，会停止发送并保留原内容。备份、写入图片和写入提示词使用独立诊断阶段。发送期间发现剪贴板已被用户修改时停止，并且不恢复旧内容覆盖用户修改。
+每次截图发送通过公开 `thread/start` 创建独立的持久会话（`ephemeral=false`），使用所选 `cwd`、只读 sandbox 和 `approvalPolicy=never`。会话标题以 `AI ScreenShot ·` 开头，可在 Codex 中查找；标题设置被拒绝时仍继续发送。助手用于分析并回答；需要交互或扩大权限的服务端请求不自动批准。沿用 CLI 的模型配置。图片、提示词和回复由 Codex 按正常聊天保存，不写入本工具内容日志；截图工具不访问 Codex 内部数据库。
 
-`ScreenShot.App.exe --clipboard-test` 使用生成数据在内存中验证 Text、RTF、HTML/资源、Bitmap、链接、自定义字符串/流、RequestedOperation 及空数据备份，结果在 `diagnostics/clipboard-test.txt`。此诊断使用独立 Mutex，可与正常实例并行；不读取或修改系统剪贴板、不发送 Codex 消息，不能代替真实发送验收。
+先进行 `initialize` / `initialized` 握手，再调用 `thread/start` 和一次 `turn/start`。准备与本地提交回执分别最多等待 90 秒，生成阶段持续读取到真实终态。有效 `turn/start` 回执才表示已提交；发送写入开始后丢失回执返回 Unknown，禁止自动重发。回复按 `threadId + turnId + itemId` 绑定，`item/agentMessage/delta` 更新同一气泡，完整 `item/completed` 修正正文，只有 `turn/completed` 才结束等待。最终优先使用 `final_answer`，不将过程文字或私人推理当作最终答复。协议以本机 CLI 生成的 schema 为准，官方流程见 [Codex App Server 文档](https://learn.chatgpt.com/docs/app-server)。
+
+“停止等待”保留已经收到的正文，停止当前消息栏的后续更新。已经接受的请求仍在后台排空到终态，不取消、不重发；退出截图程序会关闭它自己启动的 provider 进程。流中断会结束忙碌状态并明确显示未完整接收，已提交的消息不会变回可重发状态。此发送路径不读写系统剪贴板，也不查找、激活或操作 Codex 桌面控件。
+
+回复失败显示公开协议的错误类别及有效 HTTP 状态（如授权、额度、模型配置或连接问题），并保留已经收到的正文；自由格式的远端错误消息不会写入日志或直接回显。服务端连接重试期间继续等待 `turn/completed`，本工具不会再次提交截图或提示词。
+
+旧 UI Automation 发送和剪贴板保护代码保留给已有的窗口、欢迎页、手动发送专项诊断，不再作为正常 Codex 发送入口。ChatGPT 浏览器扩展流程不变。
 
 ## 构建与检查
 
@@ -79,7 +85,17 @@ powershell -ExecutionPolicy Bypass -File .\scripts\publish.ps1
 
 输出为 `dist/AIScreenShot-win-x64`。SDK 构建、协议测试、真实桌面联调的实际结果见 `PROJECT_STATUS.md`，不能将构建成功视为两端发送成功。
 
+当前独立包为 `dist/AIScreenShot-win-x64-provider-runtime-fix`，修复旧 CLI 选择、模型兼容检查和聊天保存，旧包保留。请先从托盘退出旧实例，再启动新版，避免单实例锁使旧版继续响应快捷键。
+
 运行诊断（可选）：`ScreenShot.App.exe --smoke-test --browser Chrome`。生成的 `diagnostics` 仅用于本机测试；界面图片由 WinUI 控件渲染，不保存窗口后方的桌面。真实发送测试参数 `--test-codex-workspace AI_ScreenShot` 和 `--test-chatgpt` 仅与 `--smoke-test` 一起使用，发送的是生成的渐变测试图。使用之前关闭已有实例；默认正常启动不执行发送测试。
+
+Provider 连接专项诊断：`ScreenShot.App.exe --codex-provider-test` 检查真实 CLI 的 stdio 初始化、账号就绪及配置模型的图片能力和 reasoning effort 兼容性，使用独立 Mutex。结果位于 `diagnostics/codex-provider-test.txt`；不创建 thread/turn，不提交截图或提示词，也不记录账号内容。
+
+悬浮界面专项诊断：`ScreenShot.App.exe --floating-ui-test` 检查 52px 悬浮球、空状态、浅色/深色布局、对齐与比例、处理状态、截图详情和异步取消的窗口生命周期，并通过注入发送回调走实际 UI 命令路径，验证 Codex 提交/等待/完成持续可见、不改变前台、后台回调不丢真实回复、取消及防重发。结果与生成图片位于 `diagnostics/floating-ui-test.txt`、`floating-*.png`。预览气泡明确标为布局示例，不是真实 Codex 回复。此诊断使用独立 Mutex，不抓取桌面、不读写系统剪贴板、不连接浏览器、不执行真实发送；正常启动使用新悬浮 UI，旧 `ToolbarWindow` 只保留给既有 smoke/toolbar 诊断。
+
+旧 UIA 窗口识别专项诊断：`ScreenShot.App.exe --codex-window-test` 通过旧 UIA 发送定位器只读检查 Codex 主窗口和工作区匹配，结果位于 `diagnostics/codex-window-test.txt`。需先打开 Codex 并展开项目列表；此诊断使用独立 Mutex，不激活窗口、不导航、不读写剪贴板、不发送消息，日志只记录检查结果、数量或异常类型/HRESULT。
+
+旧 UIA 欢迎页就绪专项诊断：将 Codex 主窗口停在指定工作区的空欢迎页，运行 `ScreenShot.App.exe --codex-ready-test "工作区名称"`，检查旧 UIA 发送使用的工作区/空草稿判断、错误工作区拒绝、无附件及提交上下文准备。结果位于 `diagnostics/codex-ready-test.txt`；此诊断同样只读，不自动切换聊天、清空草稿、访问剪贴板或发送消息。它不能代替图片上传和回复回显的真实验收。
 
 本机程序已启动时，可以运行 `node tests/native-host-smoke.cjs` 验证发布包 Host 的二进制帧和 Named Pipe 握手。检查已部署的 Chrome Host 时运行 `node tests/native-host-smoke.cjs '<注册脚本输出的HostPath>' Chrome <实际扩展ID>`。检查前暂时断开同一浏览器的扩展连接，避免重复握手。该检查不代表浏览器官网发送已通过。
 
@@ -89,4 +105,4 @@ powershell -ExecutionPolicy Bypass -File .\scripts\publish.ps1
 
 V1 支持静态矩形截图、复制和 PNG 保存；不支持录屏、滚动截图、OCR、标注、HDR 色彩还原或受保护内容。截图与提示词不写日志。设置保存在 `%LOCALAPPDATA%/AIScreenShot/settings.json`。浏览器桥接使用当前用户 Named Pipe 和扩展 origin 白名单。
 
-参考 [ShareX](https://github.com/ShareX/ShareX) 的交互流程，未复制 GPL 源码；浏览器上传参考 [ChromeGPT](https://github.com/blixt/ChromeGPT) 并独立适配。DOM 与 Codex 可访问性结构可能随版本变化，失败时需更新适配器。
+参考 [ShareX](https://github.com/ShareX/ShareX) 的交互流程，未复制 GPL 源码；浏览器上传参考 [ChromeGPT](https://github.com/blixt/ChromeGPT) 并独立适配。浏览器 DOM、Codex provider 协议及旧 UIA 诊断结构可能随版本变化，失败时需更新适配器。

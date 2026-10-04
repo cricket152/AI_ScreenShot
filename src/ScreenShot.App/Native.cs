@@ -23,6 +23,7 @@ internal static class Native
     [DllImport("user32.dll")] public static extern bool DestroyWindow(nint h);
     [DllImport("user32.dll")] public static extern bool ShowWindow(nint h,int command);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(nint h);
+    [DllImport("user32.dll")] public static extern bool IsWindow(nint h);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(nint h);
     [DllImport("user32.dll")] public static extern nint GetForegroundWindow();
     [DllImport("user32.dll")] public static extern bool SetWindowPos(nint h,nint after,int x,int y,int width,int height,uint flags);

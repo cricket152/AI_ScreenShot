@@ -8,11 +8,11 @@ internal sealed class TrayService : IDisposable
     private readonly Native.WindowProc procedure;
     private readonly nint window;
     private Native.NotifyIcon icon;
-    private readonly Action capture,settings,exit;
+    private readonly Action capture,settings,exit,showBall;
     private readonly uint taskbarCreated;
-    public TrayService(Settings configuration,Action capture,Action settings,Action exit)
+    public TrayService(Settings configuration,Action capture,Action settings,Action exit,Action? showBall=null)
     {
-        this.capture=capture;this.settings=settings;this.exit=exit;procedure=Process;
+        this.capture=capture;this.settings=settings;this.exit=exit;this.showBall=showBall??(()=>{});procedure=Process;
         var wc=new Native.WindowClass{Size=(uint)Marshal.SizeOf<Native.WindowClass>(),Proc=procedure,Instance=Native.GetModuleHandle(null),ClassName="AIScreenShot.Tray"};
         Native.RegisterClassEx(ref wc);window=Native.CreateWindowEx(0,wc.ClassName,"AI ScreenShot",0,0,0,0,0,0,0,wc.Instance,0);
         if(window==0)throw new InvalidOperationException("无法创建托盘消息窗口");
@@ -33,10 +33,10 @@ internal sealed class TrayService : IDisposable
             if(l==0x203)capture();
             if(l==0x205)
             {
-                nint menu=Native.CreatePopupMenu();Native.AppendMenu(menu,0,1,"截图");Native.AppendMenu(menu,0,2,"设置");Native.AppendMenu(menu,0x800,0,"");Native.AppendMenu(menu,0,3,"退出");
+                nint menu=Native.CreatePopupMenu();Native.AppendMenu(menu,0,1,"截图");Native.AppendMenu(menu,0,4,"显示悬浮球");Native.AppendMenu(menu,0,2,"设置");Native.AppendMenu(menu,0x800,0,"");Native.AppendMenu(menu,0,3,"退出");
                 Native.GetCursorPos(out var point);Native.SetForegroundWindow(hwnd);
                 int selected=Native.TrackPopupMenu(menu,0x100|0x2,point.X,point.Y,0,hwnd,0);Native.DestroyMenu(menu);
-                if(selected==1)capture();if(selected==2)settings();if(selected==3)exit();
+                if(selected==1)capture();if(selected==2)settings();if(selected==3)exit();if(selected==4)showBall();
             }
             return 0;
         }

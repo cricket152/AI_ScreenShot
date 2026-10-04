@@ -17,7 +17,7 @@ public sealed record SendResult(SendState State, string Message)
 {
     public bool Retryable => State == SendState.Failed;
 }
-public sealed record Workspace(string Name);
+public sealed record Workspace(string Name, string? DirectoryPath=null);
 public sealed record SendRequest(byte[] Png, string Prompt, Workspace? Workspace)
 {
     public string EffectivePrompt => string.IsNullOrWhiteSpace(Prompt) ? "请描述并分析这张截图" : Prompt;
@@ -27,6 +27,9 @@ public sealed class Settings
 {
     public string Browser { get; set; } = "Edge";
     public string? Workspace { get; set; }
+    public string? CodexDirectory { get; set; }
+    public List<string> CodexDirectories { get; set; } = [];
+    public string? CodexExecutable { get; set; }
     public uint HotkeyModifiers { get; set; } = 3;
     public uint HotkeyKey { get; set; } = 0x53;
     public static string DirectoryPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"AIScreenShot");

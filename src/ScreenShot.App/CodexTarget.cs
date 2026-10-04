@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.RegularExpressions;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Definitions;
@@ -9,26 +8,17 @@ using Microsoft.UI.Dispatching;
 
 namespace ScreenShot.App;
 
-internal sealed class CodexTarget(DispatcherQueue dispatcher) : ISendTarget
+internal sealed class CodexTarget(DispatcherQueue dispatcher,Settings? settings=null) : ISendTarget,IDisposable
 {
-    private static readonly Regex NewChat=new("^(?:在 (.+) 中开始新聊天|Start (?:a )?new chat in (.+))$",RegexOptions.IgnoreCase);
-    private static Window Locate(UIA3Automation automation)
+    private readonly CodexProviderTarget? provider=settings==null?null:new(settings);
+    internal bool IsProvider=>provider!=null;
+    internal Task<string> CheckProviderAsync(CancellationToken token)=>provider?.CheckAsync(token)??Task.FromResult("当前是 UI Automation 诊断模式");
+    public void Dispose()=>provider?.Dispose();
+    private static readonly Regex NewChat=CodexWindowLocator.NewChat;
+    public Task<IReadOnlyList<Workspace>> WorkspacesAsync()=>provider!=null?Task.FromResult(provider.Workspaces()):Task.Run<IReadOnlyList<Workspace>>(async()=>
     {
-        foreach(var process in Process.GetProcessesByName("ChatGPT").Concat(Process.GetProcessesByName("Codex")))
-        {
-            try
-            {
-                nint handle=process.MainWindowHandle;if(handle==0)continue;
-                var window=automation.FromHandle(handle).AsWindow();
-                if(window.FindAllDescendants(cf=>cf.ByControlType(ControlType.Button)).Any(button=>NewChat.IsMatch(button.Name)))return window;
-            }
-            catch(Exception e) when(e is ArgumentException or InvalidOperationException){ }
-        }
-        throw new InvalidOperationException("未找到暴露工作区的 Codex 窗口。请打开 Codex 并展开项目列表。");
-    }
-    public Task<IReadOnlyList<Workspace>> WorkspacesAsync()=>Task.Run<IReadOnlyList<Workspace>>(()=>
-    {
-        using var automation=new UIA3Automation();var window=Locate(automation);
+        using var automation=new UIA3Automation();
+        var window=await CodexAutomation.WaitAsync(()=>CodexWindowLocator.Locate(automation),CancellationToken.None,TimeSpan.FromSeconds(15));
         return window.FindAllDescendants(cf=>cf.ByControlType(ControlType.Button)).Select(b=>NewChat.Match(b.Name)).Where(m=>m.Success)
             .Select(m=>m.Groups[1].Success?m.Groups[1].Value:m.Groups[2].Value).GroupBy(n=>n).Where(g=>g.Count()==1).Select(g=>new Workspace(g.Key)).ToArray();
     }).WaitAsync(TimeSpan.FromSeconds(15));
@@ -53,84 +43,97 @@ internal sealed class CodexTarget(DispatcherQueue dispatcher) : ISendTarget
         catch(Exception e) when(CodexAutomation.IsUnavailable(e))
         { /* Navigation/submission can destroy the button before Invoke returns. Observe the result; never invoke again. */ }
     }
-    private static bool InDraftOrSidebar(AutomationElement element)
+    public Task<SendResult> SendAsync(SendRequest request,CancellationToken cancellationToken)
+        =>provider!=null?provider.SendWithReplyAsync(request,_=>{},cancellationToken):SendSubmissionAsync(request,cancellationToken,null);
+    public async Task<SendResult> SendWithReplyAsync(SendRequest request,Action<CodexReplyUpdate> onUpdate,CancellationToken cancellationToken)
     {
-        for(var node=element;node!=null;node=node.Parent)
-            if(node.ClassName.Contains("ProseMirror",StringComparison.Ordinal)||node.ClassName.Contains("sidebar",StringComparison.Ordinal))return true;
-        return false;
+        ArgumentNullException.ThrowIfNull(onUpdate);
+        if(provider!=null)return await provider.SendWithReplyAsync(request,onUpdate,cancellationToken);
+        CodexConversation? conversation=null;
+        var result=await SendSubmissionAsync(request,cancellationToken,observed=>conversation=observed);
+        if(result.State!=SendState.Sent)return result;
+        // SendSubmissionAsync has already restored the clipboard before the UI starts waiting for a reply.
+        onUpdate(new(CodexReplyPhase.Submitted));
+        if(conversation==null)
+        {
+            onUpdate(new(CodexReplyPhase.Unavailable,"已发送到 Codex；当前界面未提供可确认的对话结构，请在 Codex 查看回复"));
+            return result;
+        }
+        onUpdate(new(CodexReplyPhase.Thinking));
+        await conversation.ObserveAsync(onUpdate,cancellationToken);
+        return result;
     }
-    private static int MessageCount(Window window,string prompt)
+    private async Task<SendResult> SendSubmissionAsync(SendRequest request,CancellationToken cancellationToken,Action<CodexConversation?>? onSubmitted)
     {
-        return window.FindAllDescendants().Count(e=>
-            e.ControlType is not (ControlType.Button or ControlType.Edit)
-            &&CodexAutomation.NormalizeText(e.Name)==CodexAutomation.NormalizeText(prompt)&&!InDraftOrSidebar(e)
-            &&!e.FindAllDescendants().Any(n=>n.ClassName.Contains("ProseMirror",StringComparison.Ordinal)));
+        return await SendCoreAsync(request,cancellationToken,onSubmitted);
     }
-    public async Task<SendResult> SendAsync(SendRequest request,CancellationToken cancellationToken)
-    {
-        using var timeout=CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);timeout.CancelAfter(TimeSpan.FromSeconds(90));
-        try{return await SendCoreAsync(request,timeout.Token).WaitAsync(timeout.Token);}
-        catch(OperationCanceledException){return new(SendState.Unknown,"Codex 自动化超时，发送结果未知；请检查 Codex，不会自动重发");}
-    }
-    private Task<SendResult> SendCoreAsync(SendRequest request,CancellationToken cancellationToken)=>Task.Run(async()=>
+    private Task<SendResult> SendCoreAsync(SendRequest request,CancellationToken cancellationToken,Action<CodexConversation?>? onSubmitted)=>Task.Run(async()=>
     {
         if(request.Workspace==null)return new SendResult(SendState.Failed,"请先从 Codex 下拉菜单选择工作区");
         bool submitted=false;uint ownedSequence=0;ClipboardBackup? previous=null;string stage="查找窗口";
+        nint originalForeground=Native.GetForegroundWindow(),codexHandle=0;
+        bool foregroundRestorationCompleted=false;
+        using var preparationTimeout=CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        preparationTimeout.CancelAfter(TimeSpan.FromSeconds(90));
+        var preparationToken=preparationTimeout.Token;
         try
         {
             using var automation=new UIA3Automation();
-            var window=await CodexAutomation.WaitAsync(()=>Locate(automation),cancellationToken,TimeSpan.FromSeconds(15));
+            var window=await CodexAutomation.WaitAsync(()=>CodexWindowLocator.Locate(automation,request.Workspace.Name),preparationToken,TimeSpan.FromSeconds(15));
+            codexHandle=window.Properties.NativeWindowHandle.Value;
             var candidates=await CodexAutomation.WaitAsync(()=>window.FindAllDescendants(cf=>cf.ByControlType(ControlType.Button)).Where(b=>
-            {var m=NewChat.Match(b.Name);return m.Success&&(m.Groups[1].Value==request.Workspace.Name||m.Groups[2].Value==request.Workspace.Name);}).ToArray(),cancellationToken,TimeSpan.FromSeconds(15));
+            {var m=NewChat.Match(b.Name);return m.Success&&(m.Groups[1].Value==request.Workspace.Name||m.Groups[2].Value==request.Workspace.Name);}).ToArray(),preparationToken,TimeSpan.FromSeconds(15));
             if(candidates.Length!=1)throw new InvalidOperationException("工作区不存在或重名，请刷新并重新选择");
-            stage="新建聊天";cancellationToken.ThrowIfCancellationRequested();window.SetForeground();InvokeOnce(candidates[0]);
-            // Navigation is asynchronous. Wait for a workspace marker in the composer area.
-            stage="确认工作区";await Wait(()=>
-            {
-                var candidate=Composer(window);if(candidate==null)return null;
-                var panel=candidate.Parent;
-                for(int depth=0;depth<8&&panel!=null;depth++,panel=panel.Parent)
-                {
-                    var nodes=panel.FindAllDescendants();
-                    if(nodes.Any(n=>NewChat.IsMatch(n.Name)))break; // Sidebar/root is not evidence.
-                    if(nodes.Any(n=>n.Name==request.Workspace.Name))return candidate;
-                }
-                return null;
-            },cancellationToken,20);
+            stage="新建聊天";preparationToken.ThrowIfCancellationRequested();InvokeOnce(candidates[0]);
+            // Navigation is asynchronous. Confirm the workspace and empty draft in the same isolated input scope.
+            stage="确认工作区";await Wait(()=>CodexConversation.ReadyComposer(window,request.Workspace.Name),preparationToken,20);
             stage="备份原剪贴板";await OnUi(async()=>
             {
-                uint before=Native.GetClipboardSequenceNumber();previous=await ClipboardBackup.ReadAsync(Clipboard.GetContent(),cancellationToken);
+                uint before=Native.GetClipboardSequenceNumber();
+                previous=await ClipboardAccessPolicy.RetryAsync(()=>ClipboardBackup.ReadAsync(Clipboard.GetContent(),preparationToken),
+                    ()=>ClipboardService.RequireSequence(before),preparationToken);
                 if(before!=Native.GetClipboardSequenceNumber())throw new InvalidOperationException("剪贴板在读取期间发生变化，请重试");
-                cancellationToken.ThrowIfCancellationRequested();stage="写入图片剪贴板";
-                ClipboardService.Image(request.Png,contentSet:()=>ownedSequence=Native.GetClipboardSequenceNumber());
+                preparationToken.ThrowIfCancellationRequested();stage="写入图片剪贴板";
+                await ClipboardService.ImageAsync(request.Png,contentSet:()=>ownedSequence=Native.GetClipboardSequenceNumber(),
+                    token:preparationToken,expectedSequence:before,flushStarting:()=>stage="固化图片剪贴板");
             });
             stage="粘贴图片";
-            await FocusComposer(window,cancellationToken);cancellationToken.ThrowIfCancellationRequested();Native.Paste();
+            await FocusComposer(window,preparationToken,originalForeground,true);preparationToken.ThrowIfCancellationRequested();
+            if(Native.GetClipboardSequenceNumber()!=ownedSequence)throw new InvalidOperationException("剪贴板已被修改，停止粘贴以保护你的内容");
+            Native.Paste();
             stage="等待图片附件";
-            await Wait(()=>window.FindAllDescendants().FirstOrDefault(e=>e.Name.Contains("screenshot",StringComparison.OrdinalIgnoreCase)||Regex.IsMatch(e.Name,"^(Remove|移除|删除).*(attachment|附件|图片)",RegexOptions.IgnoreCase)),cancellationToken,30);
-            stage="准备提示词剪贴板";await OnUi(()=>{cancellationToken.ThrowIfCancellationRequested();if(Native.GetClipboardSequenceNumber()!=ownedSequence)throw new InvalidOperationException("剪贴板已被修改，停止发送以避免覆盖你的内容");ClipboardService.Text(request.EffectivePrompt,()=>ownedSequence=Native.GetClipboardSequenceNumber());});
+            await Wait(()=>CodexConversation.DraftAttachment(window,request.Workspace.Name),preparationToken,30);
+            stage="准备提示词剪贴板";await OnUi(async()=>
+            {
+                preparationToken.ThrowIfCancellationRequested();
+                await ClipboardService.TextAsync(request.EffectivePrompt,()=>ownedSequence=Native.GetClipboardSequenceNumber(),
+                    token:preparationToken,expectedSequence:ownedSequence,flushStarting:()=>stage="固化提示词剪贴板");
+            });
             stage="粘贴提示词";
-            await FocusComposer(window,cancellationToken);cancellationToken.ThrowIfCancellationRequested();Native.Paste();
+            await FocusComposer(window,preparationToken,originalForeground,false);preparationToken.ThrowIfCancellationRequested();
+            if(Native.GetClipboardSequenceNumber()!=ownedSequence)throw new InvalidOperationException("剪贴板已被修改，停止粘贴以保护你的内容");
+            Native.Paste();
             stage="确认提示词";
             await Wait(()=>
             {
                 var editor=Composer(window);if(editor==null)return null;
-                return CodexAutomation.NormalizeText(editor.Patterns.Text.Pattern.DocumentRange.GetText(-1))==CodexAutomation.NormalizeText(request.EffectivePrompt)?editor:null;
-            },cancellationToken);
-            int beforeMessages=0;
-            await Wait(()=>{beforeMessages=MessageCount(window,request.EffectivePrompt);return window;},cancellationToken);
+                string? draft=CodexConversation.ReadDraft(editor);
+                return draft!=null&&CodexAutomation.NormalizeText(draft)==CodexAutomation.NormalizeText(request.EffectivePrompt)?editor:null;
+            },preparationToken);
+            stage="记录提交上下文";
+            var conversation=await CodexAutomation.WaitAsync(()=>CodexConversation.Prepare(window,request.EffectivePrompt),preparationToken,TimeSpan.FromSeconds(15));
             stage="等待发送按钮";
-            var send=await Wait(()=>window.FindAllDescendants(cf=>cf.ByControlType(ControlType.Button)).FirstOrDefault(e=>Regex.IsMatch(e.Name,"^(Send|Send message|发送|发送消息)$",RegexOptions.IgnoreCase)&&e.IsEnabled),cancellationToken);
-            cancellationToken.ThrowIfCancellationRequested();
+            var send=await Wait(()=>window.FindAllDescendants(cf=>cf.ByControlType(ControlType.Button)).FirstOrDefault(e=>Regex.IsMatch(e.Name,"^(Send|Send message|发送|发送消息)$",RegexOptions.IgnoreCase)&&e.IsEnabled),preparationToken);
+            preparationToken.ThrowIfCancellationRequested();
             if(Native.GetForegroundWindow()!=window.Properties.NativeWindowHandle.Value)throw new InvalidOperationException("Codex 焦点已改变，已停止发送");
+            await RestoreClipboardAsync();
+            preparationToken.ThrowIfCancellationRequested();
+            if(Native.GetForegroundWindow()!=codexHandle)throw new InvalidOperationException("Codex 焦点已改变，已停止发送");
             stage="提交消息";submitted=true;InvokeOnce(send);
+            RestoreForeground();
             stage="确认消息提交";
-            await Wait(()=>
-            {
-                var editor=Composer(window);if(editor==null)return null;
-                bool cleared=string.IsNullOrWhiteSpace(editor.Patterns.Text.Pattern.DocumentRange.GetText(-1));
-                return cleared&&MessageCount(window,request.EffectivePrompt)>beforeMessages?window:null;
-            },cancellationToken,30);
+            if(!await conversation.ConfirmSubmissionAsync(cancellationToken))throw new InvalidOperationException("Codex 聊天已关闭或切换，无法继续确认这次提交");
+            onSubmitted?.Invoke(conversation);
             return new SendResult(SendState.Sent,"已发送到 Codex · "+request.Workspace.Name);
         }
         catch(Exception e)
@@ -141,21 +144,36 @@ internal sealed class CodexTarget(DispatcherQueue dispatcher) : ISendTarget
         }
         finally
         {
-            if(previous!=null)
-            {
-                try{await OnUi(()=>{if(ownedSequence!=0&&Native.GetClipboardSequenceNumber()==ownedSequence)ClipboardService.Restore(previous);else previous.Dispose();});}
-                catch(Exception){ /* Clipboard owner may disappear; never override the send outcome. */ }
-            }
+            RestoreForeground();
+            await RestoreClipboardAsync();
         }
-    },cancellationToken);
-    private static async Task FocusComposer(Window window,CancellationToken token)
+        void RestoreForeground()
+        {
+            // Preserve a deliberate user focus change; restoration happens before read-only confirmation/reply polling.
+            if(foregroundRestorationCompleted)return;foregroundRestorationCompleted=true;
+            if(originalForeground!=0&&originalForeground!=codexHandle&&Native.IsWindow(originalForeground)&&Native.GetForegroundWindow()==codexHandle)Native.SetForegroundWindow(originalForeground);
+        }
+        async Task RestoreClipboardAsync()
+        {
+            var backup=previous;previous=null;if(backup==null)return;
+            bool cleanupStarted=false;
+            using var restorationTimeout=new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            try{await OnUi(async()=>{cleanupStarted=true;if(ownedSequence!=0&&Native.GetClipboardSequenceNumber()==ownedSequence)await ClipboardService.RestoreAsync(backup,ownedSequence,restorationTimeout.Token);else backup.Dispose();});}
+            catch(Exception){if(!cleanupStarted)backup.Dispose(); /* Clipboard owner may disappear; never override the send outcome. */ }
+        }
+    });
+    private static async Task FocusComposer(Window window,CancellationToken token,nint originalForeground,bool activate)
     {
+        token.ThrowIfCancellationRequested();
+        nint handle=window.Properties.NativeWindowHandle.Value;
+        if(activate&&Native.GetForegroundWindow()==originalForeground)window.SetForeground();
         await Wait(()=>
         {
+            if(Native.GetForegroundWindow()!=handle)throw new InvalidOperationException("焦点已改变，已停止发送");
             var editor=Composer(window);if(editor==null)return null;
             editor.Focus();return editor;
         },token);
-        if(Native.GetForegroundWindow()!=window.Properties.NativeWindowHandle.Value)throw new InvalidOperationException("Codex 未获得焦点，已停止发送");
+        if(Native.GetForegroundWindow()!=handle)throw new InvalidOperationException("Codex 未获得焦点，已停止发送");
     }
     private static void RecordFailure(string stage,Exception error,bool submitted)
     {
