@@ -6,6 +6,7 @@ checks+=PromptTests.Run();
 checks+=MarkdownTests.Run();
 checks+=PanelResizeTests.Run();
 checks+=PanelMoveTests.Run();
+checks+=AppearanceTests.Run();
 checks+=await CodexProviderTests.RunAsync();
 void Check(bool condition,string message){if(!condition)throw new Exception(message);checks++;}
 var virtualDesktop=new PixelRect(-1920,-200,4480,1640);

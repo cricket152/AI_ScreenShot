@@ -27,6 +27,8 @@ public sealed record SendRequest(byte[] Png, string Prompt, Workspace? Workspace
 public interface ISendTarget { Task<SendResult> SendAsync(SendRequest request, CancellationToken cancellationToken); }
 public sealed class Settings
 {
+    private PanelAppearance panelAppearance=new();
+    public PanelAppearance PanelAppearance {get=>panelAppearance;set=>panelAppearance=(value??new()).Normalize();}
     private string defaultPrompt=SendRequest.BuiltInDefaultPrompt;
     public string DefaultPrompt
     {

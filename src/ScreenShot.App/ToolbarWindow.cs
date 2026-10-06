@@ -73,6 +73,7 @@ internal sealed class ToolbarWindow : Window
         Add("复制提示词",async()=>{try{await ClipboardService.TextAsync(EffectivePrompt);status.Text="提示词已复制";}catch(Exception e){status.Text=e.Message;}});
         Add("设置",()=>{app.EndCaptureSession();app.ShowSettings();});more.Flyout=menu;
         Closed+=(_,_)=>{app.EndCaptureSession();app.Toolbar=null;};
+        app.Themes.Track(this);
     }
     private string EffectivePrompt=>new SendRequest([],prompt.Text,null,app.Settings.DefaultPrompt).EffectivePrompt;
     public void Present(byte[] image,PixelRect region)

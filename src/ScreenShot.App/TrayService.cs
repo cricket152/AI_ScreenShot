@@ -7,6 +7,7 @@ internal sealed class TrayService : IDisposable
 {
     private readonly Native.WindowProc procedure;
     private readonly nint window;
+    private readonly nint ownedIcon;
     private Native.NotifyIcon icon;
     private readonly Action capture,settings,exit,showBall;
     private readonly uint taskbarCreated;
@@ -16,8 +17,9 @@ internal sealed class TrayService : IDisposable
         var wc=new Native.WindowClass{Size=(uint)Marshal.SizeOf<Native.WindowClass>(),Proc=procedure,Instance=Native.GetModuleHandle(null),ClassName="AIScreenShot.Tray"};
         Native.RegisterClassEx(ref wc);window=Native.CreateWindowEx(0,wc.ClassName,"AI ScreenShot",0,0,0,0,0,0,0,wc.Instance,0);
         if(window==0)throw new InvalidOperationException("无法创建托盘消息窗口");
+        try{ownedIcon=AppIcon.LoadTrayIcon();}catch{Native.DestroyWindow(window);throw;}
         taskbarCreated=Native.RegisterWindowMessage("TaskbarCreated");
-        icon=new(){Size=(uint)Marshal.SizeOf<Native.NotifyIcon>(),Window=window,Id=1,Flags=7,Callback=0x8001,Icon=Native.LoadIcon(0,32512),Tip="AI ScreenShot · Ctrl+Alt+S",Info="",Title=""};
+        icon=new(){Size=(uint)Marshal.SizeOf<Native.NotifyIcon>(),Window=window,Id=1,Flags=7,Callback=0x8001,Icon=ownedIcon,Tip="AI ScreenShot · Ctrl+Alt+S",Info="",Title=""};
         Native.Shell_NotifyIcon(0,ref icon);
         if(!ChangeHotkey(configuration.HotkeyModifiers,configuration.HotkeyKey)) Notify("快捷键冲突","截图快捷键已被占用，请从托盘设置修改。");
     }
@@ -42,5 +44,5 @@ internal sealed class TrayService : IDisposable
         }
         return Native.DefWindowProc(hwnd,message,w,l);
     }
-    public void Dispose(){Native.UnregisterHotKey(window,1);Native.Shell_NotifyIcon(2,ref icon);Native.DestroyWindow(window);}
+    public void Dispose(){Native.UnregisterHotKey(window,1);Native.Shell_NotifyIcon(2,ref icon);Native.DestroyWindow(window);Native.DestroyIcon(ownedIcon);}
 }

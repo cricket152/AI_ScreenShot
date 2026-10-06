@@ -4,7 +4,11 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using Windows.Graphics;
+using Windows.System;
+using Windows.UI.ViewManagement;
 
 namespace ScreenShot.App;
 
@@ -14,6 +18,11 @@ internal sealed class FloatingBallWindow : Window
     private readonly Button button;
     private readonly Action expand;
     private readonly SubclassProc subclass;
+    private readonly ScaleTransform feedbackScale=new();
+    private readonly UISettings accessibility=new();
+    private readonly AdjustableBackdrop backdrop=new(new(ScreenShot.Core.SurfaceMaterial.AcrylicThin,0.42));
+    private Storyboard? feedbackAnimation;
+    private bool pointerOver,keyboardPressed;
     private bool positioned,pressed,dragging,suppressClick,repositionPending,closed;
     private Native.Point pressPoint;
     private int pointerOffsetX,pointerOffsetY;
@@ -28,14 +37,21 @@ internal sealed class FloatingBallWindow : Window
         presenter.SetBorderAndTitleBar(false,false);presenter.IsResizable=false;
         presenter.IsMaximizable=false;presenter.IsMinimizable=false;presenter.IsAlwaysOnTop=true;
         AppWindow.SetPresenter(presenter);
+        SystemBackdrop=backdrop;
 
-        button=(Button)Microsoft.UI.Xaml.Markup.XamlReader.Load(
-            "<Button xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" Width=\"52\" Height=\"52\" Padding=\"0\" CornerRadius=\"26\" BorderThickness=\"1\" Background=\"{ThemeResource ButtonBackground}\" BorderBrush=\"{ThemeResource ButtonBorderBrush}\" />");
-        button.Content=new FontIcon{Glyph="\uE722",FontSize=20};
+        button=new Button{HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center,
+            RenderTransform=feedbackScale,RenderTransformOrigin=new Windows.Foundation.Point(0.5,0.5)};
+        UiDesign.Apply(button,"SS.BallButtonStyle");
+        button.Content=new Image{Source=new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(Path.Combine(AppContext.BaseDirectory,"Assets","AppIcon.png"))),Width=32,Height=32,Stretch=Stretch.Uniform};
         AutomationProperties.SetName(button,"AI ScreenShot 悬浮入口");
         ToolTipService.SetToolTip(button,"AI ScreenShot · 点击展开或收起，拖动贴边");
-        Content=button;
+        var root=new Grid();root.Children.Add(button);Content=root;
         button.Click+=(_,_)=>{if(!suppressClick&&!dragging)this.expand();};
+        button.PointerEntered+=(_,_)=>{pointerOver=true;UpdateFeedback();};
+        button.PointerExited+=(_,_)=>{pointerOver=false;UpdateFeedback();};
+        button.AddHandler(UIElement.KeyDownEvent,new KeyEventHandler((_,e)=>{if(e.Key is VirtualKey.Space or VirtualKey.Enter){keyboardPressed=true;UpdateFeedback();}}),true);
+        button.AddHandler(UIElement.KeyUpEvent,new KeyEventHandler((_,e)=>{if(e.Key is VirtualKey.Space or VirtualKey.Enter){keyboardPressed=false;UpdateFeedback();}}),true);
+        button.LostFocus+=(_,_)=>{keyboardPressed=false;UpdateFeedback();};
         button.AddHandler(UIElement.PointerPressedEvent,new PointerEventHandler(PointerPressed),true);
         button.AddHandler(UIElement.PointerMovedEvent,new PointerEventHandler(PointerMoved),true);
         button.AddHandler(UIElement.PointerReleasedEvent,new PointerEventHandler(PointerReleased),true);
@@ -51,7 +67,8 @@ internal sealed class FloatingBallWindow : Window
 
         subclass=WindowMessage;
         if(!SetWindowSubclass(Handle,subclass,1,0))throw new InvalidOperationException("无法初始化悬浮入口窗口");
-        Closed+=(_,_)=>{closed=true;RemoveWindowSubclass(Handle,subclass,1);};
+        Closed+=(_,_)=>{closed=true;backdrop.Dispose();feedbackAnimation?.Stop();RemoveWindowSubclass(Handle,subclass,1);};
+        ((App)Application.Current).Themes.Track(this);
     }
 
     public void Present()
@@ -92,7 +109,7 @@ internal sealed class FloatingBallWindow : Window
     {
         if(!e.GetCurrentPoint(button).Properties.IsLeftButtonPressed||!Native.GetCursorPos(out pressPoint))return;
         var bounds=GetBounds();pointerOffsetX=pressPoint.X-bounds.Left;pointerOffsetY=pressPoint.Y-bounds.Top;
-        suppressClick=false;pressed=true;dragging=false;button.CapturePointer(e.Pointer);
+        suppressClick=false;pressed=true;dragging=false;button.CapturePointer(e.Pointer);UpdateFeedback();
     }
 
     private void PointerMoved(object sender,PointerRoutedEventArgs e)
@@ -117,11 +134,28 @@ internal sealed class FloatingBallWindow : Window
 
     private void FinishDrag()
     {
-        bool wasDragging=dragging;pressed=false;dragging=false;
+        bool wasDragging=dragging;pressed=false;dragging=false;UpdateFeedback();
         if(!wasDragging)return;
         SnapToEdge();
         // Button may raise Click later in this pointer-release dispatch.
         DispatcherQueue.TryEnqueue(()=>suppressClick=false);
+    }
+
+    private void UpdateFeedback()
+    {
+        if(closed)return;
+        double target=pressed||keyboardPressed?UiDesign.Number("SS.Motion.PressedScale"):pointerOver?UiDesign.Number("SS.Motion.HoverScale"):1;
+        double current=feedbackScale.ScaleX;feedbackAnimation?.Stop();
+        feedbackScale.ScaleX=feedbackScale.ScaleY=current;
+        if(!accessibility.AnimationsEnabled){feedbackScale.ScaleX=feedbackScale.ScaleY=target;return;}
+        var storyboard=new Storyboard();
+        foreach(string property in new[]{"ScaleX","ScaleY"})
+        {
+            var animation=new DoubleAnimation{From=current,To=target,Duration=new Duration(TimeSpan.FromMilliseconds(UiDesign.Number("SS.Motion.Fast"))),
+                EnableDependentAnimation=true,EasingFunction=new CubicEase{EasingMode=EasingMode.EaseOut}};
+            Storyboard.SetTarget(animation,feedbackScale);Storyboard.SetTargetProperty(animation,property);storyboard.Children.Add(animation);
+        }
+        feedbackAnimation=storyboard;storyboard.Begin();
     }
 
     private int PhysicalSize()=>Math.Max(1,(int)Math.Round(LogicalSize*Math.Max(96u,Native.GetDpiForWindow(Handle))/96d));

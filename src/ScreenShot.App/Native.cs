@@ -56,6 +56,10 @@ internal static class Native
     [DllImport("user32.dll")] public static extern nint LoadCursor(nint instance,nint name);
     [DllImport("user32.dll")] public static extern nint SetCursor(nint cursor);
     [DllImport("user32.dll")] public static extern nint LoadIcon(nint instance,nint name);
+    [DllImport("user32.dll",CharSet=CharSet.Unicode,SetLastError=true)] public static extern nint LoadImage(nint instance,string name,uint type,int width,int height,uint flags);
+    [DllImport("user32.dll")] public static extern bool DestroyIcon(nint icon);
+    [DllImport("user32.dll",CharSet=CharSet.Unicode)] public static extern nint SendMessage(nint window,uint message,nint wparam,nint lparam);
+    [DllImport("shell32.dll",CharSet=CharSet.Unicode)] public static extern uint ExtractIconEx(string file,int index,out nint large,out nint small,uint count);
     [DllImport("user32.dll",SetLastError=true)] public static extern bool RegisterHotKey(nint h,int id,uint mods,uint key);
     [DllImport("user32.dll")] public static extern bool UnregisterHotKey(nint h,int id);
     [DllImport("shell32.dll",CharSet=CharSet.Unicode)] public static extern bool Shell_NotifyIcon(uint message,ref NotifyIcon data);
@@ -70,9 +74,19 @@ internal static class Native
     [DllImport("user32.dll")] public static extern uint GetClipboardSequenceNumber();
     [DllImport("user32.dll")] public static extern nint GetClipboardOwner();
     [DllImport("user32.dll")] public static extern bool GetWindowRect(nint window,out Rect rect);
+    [DllImport("user32.dll")] public static extern bool GetClientRect(nint window,out Rect rect);
+    [DllImport("user32.dll")] public static extern bool ClientToScreen(nint window,ref Point point);
+    [DllImport("user32.dll",SetLastError=true)] public static extern int SetWindowRgn(nint window,nint region,bool redraw);
+    [DllImport("user32.dll")] public static extern int GetWindowRgn(nint window,nint region);
+    [DllImport("gdi32.dll")] public static extern nint CreateRectRgn(int left,int top,int right,int bottom);
+    [DllImport("gdi32.dll")] public static extern nint CreateRoundRectRgn(int left,int top,int right,int bottom,int ellipseWidth,int ellipseHeight);
+    [DllImport("gdi32.dll")] public static extern int CombineRgn(nint destination,nint first,nint second,int mode);
+    [DllImport("gdi32.dll")] public static extern bool PtInRegion(nint region,int x,int y);
+    [DllImport("gdi32.dll")] public static extern int GetRgnBox(nint region,out Rect bounds);
     [DllImport("user32.dll",EntryPoint="GetWindowLongPtrW")] public static extern nint GetWindowLongPtr(nint window,int index);
     [DllImport("user32.dll",EntryPoint="SetWindowLongPtrW")] public static extern nint SetWindowLongPtr(nint window,int index,nint value);
     [DllImport("dwmapi.dll")] public static extern int DwmFlush();
+    [DllImport("dwmapi.dll")] public static extern int DwmSetWindowAttribute(nint window,uint attribute,ref uint value,uint size);
     [DllImport("user32.dll",CharSet=CharSet.Unicode)] public static extern bool UnregisterClass(string name,nint instance);
     [DllImport("shell32.dll",CharSet=CharSet.Unicode)] public static extern int SetCurrentProcessExplicitAppUserModelID(string id);
     public static void Paste()

@@ -1,1 +1,144 @@
-<Application x:Class="ScreenShot.App.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"><Application.Resources><ResourceDictionary><ResourceDictionary.MergedDictionaries><XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" /></ResourceDictionary.MergedDictionaries></ResourceDictionary></Application.Resources></Application>
+<Application
+    x:Class="ScreenShot.App.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <!-- Shared geometry and type scale; surfaces inherit the system theme. -->
+            <x:Double x:Key="SS.Spacing.XS">4</x:Double>
+            <x:Double x:Key="SS.Spacing.S">8</x:Double>
+            <x:Double x:Key="SS.Spacing.M">12</x:Double>
+            <x:Double x:Key="SS.Spacing.L">16</x:Double>
+            <x:Double x:Key="SS.Spacing.XL">24</x:Double>
+            <x:Double x:Key="SS.Spacing.XXL">32</x:Double>
+            <x:Double x:Key="SS.ControlHeight">36</x:Double>
+            <x:Double x:Key="SS.BallSize">52</x:Double>
+            <x:Double x:Key="SS.BallButtonSize">48</x:Double>
+            <x:Double x:Key="SS.ToolbarButtonWidth">64</x:Double>
+            <x:Double x:Key="SS.Settings.ContentMaxWidth">760</x:Double>
+            <x:Double x:Key="SS.Settings.ControlWidth">280</x:Double>
+            <x:Double x:Key="SS.Settings.RowStackBreakpoint">500</x:Double>
+            <x:Double x:Key="SS.Settings.NavigationWidth">196</x:Double>
+            <x:Double x:Key="SS.Settings.ExpandedBreakpoint">860</x:Double>
+            <x:Double x:Key="SS.Settings.CompactBreakpoint">640</x:Double>
+            <x:Double x:Key="SS.Settings.WindowWidth">960</x:Double>
+            <x:Double x:Key="SS.Settings.WindowHeight">720</x:Double>
+            <x:Double x:Key="SS.Settings.PromptMinHeight">96</x:Double>
+            <x:Double x:Key="SS.Settings.PromptMaxHeight">168</x:Double>
+            <x:Double x:Key="SS.Typography.Caption">12</x:Double>
+            <x:Double x:Key="SS.Typography.Body">14</x:Double>
+            <x:Double x:Key="SS.Typography.Section">18</x:Double>
+            <x:Double x:Key="SS.Typography.Title">28</x:Double>
+            <x:Double x:Key="SS.Motion.Fast">120</x:Double>
+            <x:Double x:Key="SS.Motion.Normal">180</x:Double>
+            <x:Double x:Key="SS.Motion.HoverScale">1.04</x:Double>
+            <x:Double x:Key="SS.Motion.PressedScale">0.96</x:Double>
+            <CornerRadius x:Key="SS.Corner.Control">8</CornerRadius>
+            <CornerRadius x:Key="SS.Corner.Surface">12</CornerRadius>
+            <CornerRadius x:Key="SS.Corner.Capsule">28</CornerRadius>
+            <CornerRadius x:Key="SS.Corner.Ball">24</CornerRadius>
+            <Thickness x:Key="SS.Padding.Control">12,6</Thickness>
+            <Thickness x:Key="SS.Padding.Surface">16</Thickness>
+            <Thickness x:Key="SS.Padding.Window">24</Thickness>
+
+            <Style x:Key="SS.BodyTextStyle" TargetType="TextBlock">
+                <Setter Property="FontFamily" Value="Segoe UI Variable" />
+                <Setter Property="FontSize" Value="{StaticResource SS.Typography.Body}" />
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+                <Setter Property="TextWrapping" Value="Wrap" />
+            </Style>
+            <Style x:Key="SS.CaptionTextStyle" TargetType="TextBlock" BasedOn="{StaticResource SS.BodyTextStyle}">
+                <Setter Property="FontSize" Value="{StaticResource SS.Typography.Caption}" />
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+            </Style>
+            <Style x:Key="SS.SectionTextStyle" TargetType="TextBlock" BasedOn="{StaticResource SS.BodyTextStyle}">
+                <Setter Property="FontSize" Value="{StaticResource SS.Typography.Section}" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+            </Style>
+            <Style x:Key="SS.TitleTextStyle" TargetType="TextBlock" BasedOn="{StaticResource SS.SectionTextStyle}">
+                <Setter Property="FontSize" Value="{StaticResource SS.Typography.Title}" />
+            </Style>
+            <Style x:Key="SS.QuietButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+                <Setter Property="MinHeight" Value="{StaticResource SS.ControlHeight}" />
+                <Setter Property="FontSize" Value="{StaticResource SS.Typography.Body}" />
+                <Setter Property="CornerRadius" Value="{StaticResource SS.Corner.Control}" />
+                <Setter Property="Padding" Value="{StaticResource SS.Padding.Control}" />
+            </Style>
+            <Style x:Key="SS.PrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource AccentButtonStyle}">
+                <Setter Property="MinHeight" Value="{StaticResource SS.ControlHeight}" />
+                <Setter Property="FontSize" Value="{StaticResource SS.Typography.Body}" />
+                <Setter Property="CornerRadius" Value="{StaticResource SS.Corner.Control}" />
+                <Setter Property="Padding" Value="{StaticResource SS.Padding.Control}" />
+            </Style>
+            <!-- Keep native templates, focus indicators and CommonStates. -->
+            <Style x:Key="SS.ToolbarButtonStyle" TargetType="Button" BasedOn="{StaticResource SS.QuietButtonStyle}">
+                <Setter Property="Width" Value="{StaticResource SS.ToolbarButtonWidth}" />
+                <Setter Property="Height" Value="{StaticResource SS.ControlHeight}" />
+                <Setter Property="FontSize" Value="{StaticResource SS.Typography.Caption}" />
+                <Setter Property="Padding" Value="4" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Background" Value="Transparent" />
+            </Style>
+            <Style x:Key="SS.IconButtonStyle" TargetType="Button" BasedOn="{StaticResource SS.ToolbarButtonStyle}">
+                <Setter Property="Width" Value="{StaticResource SS.ControlHeight}" />
+                <Setter Property="Padding" Value="0" />
+            </Style>
+            <Style x:Key="SS.BallButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+                <Setter Property="Width" Value="{StaticResource SS.BallButtonSize}" />
+                <Setter Property="Height" Value="{StaticResource SS.BallButtonSize}" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="CornerRadius" Value="{StaticResource SS.Corner.Ball}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="BorderBrush" Value="{ThemeResource SurfaceStrokeColorDefaultBrush}" />
+                <Setter Property="Background" Value="{ThemeResource AcrylicInAppFillColorDefaultBrush}" />
+            </Style>
+            <Style x:Key="SS.PromptTextBoxStyle" TargetType="TextBox">
+                <Setter Property="FontSize" Value="{StaticResource SS.Typography.Body}" />
+                <Setter Property="CornerRadius" Value="{StaticResource SS.Corner.Control}" />
+                <Setter Property="Padding" Value="12" />
+                <Setter Property="MinHeight" Value="64" />
+                <Setter Property="MaxHeight" Value="100" />
+            </Style>
+            <Style x:Key="SS.RichTextStyle" TargetType="RichTextBlock">
+                <Setter Property="FontFamily" Value="Segoe UI Variable" />
+                <Setter Property="FontSize" Value="{StaticResource SS.Typography.Body}" />
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+                <Setter Property="TextWrapping" Value="Wrap" />
+                <Setter Property="IsTextSelectionEnabled" Value="True" />
+            </Style>
+            <Style x:Key="SS.WindowSurfaceStyle" TargetType="Border">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="CornerRadius" Value="{StaticResource SS.Corner.Surface}" />
+            </Style>
+            <Style x:Key="SS.MessageSurfaceStyle" TargetType="Border">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderBrush" Value="{ThemeResource SurfaceStrokeColorDefaultBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="{StaticResource SS.Corner.Surface}" />
+            </Style>
+            <Style x:Key="SS.ToolbarSurfaceStyle" TargetType="Border" BasedOn="{StaticResource SS.MessageSurfaceStyle}">
+                <Setter Property="CornerRadius" Value="{StaticResource SS.Corner.Capsule}" />
+            </Style>
+            <Style x:Key="SS.ComposerSurfaceStyle" TargetType="Border" BasedOn="{StaticResource SS.MessageSurfaceStyle}">
+                <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+            </Style>
+            <Style x:Key="SS.SettingRowStyle" TargetType="Border" BasedOn="{StaticResource SS.ComposerSurfaceStyle}">
+                <Setter Property="Padding" Value="{StaticResource SS.Padding.Surface}" />
+                <Setter Property="MinHeight" Value="72" />
+            </Style>
+            <Style x:Key="SS.UserMessageStyle" TargetType="Border" BasedOn="{StaticResource SS.WindowSurfaceStyle}">
+                <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+                <Setter Property="Padding" Value="{StaticResource SS.Padding.Surface}" />
+            </Style>
+            <Style x:Key="SS.AssistantMessageStyle" TargetType="Border" BasedOn="{StaticResource SS.UserMessageStyle}">
+                <Setter Property="Background" Value="{ThemeResource ControlFillColorSecondaryBrush}" />
+            </Style>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

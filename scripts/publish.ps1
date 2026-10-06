@@ -11,6 +11,7 @@ if ($LASTEXITCODE) { throw 'Native Host publish failed' }
 Copy-Item -LiteralPath (Join-Path $root 'extension') -Destination $output -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $root 'scripts') -Destination $output -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $root 'README.md') -Destination $output -Force
+Copy-Item -LiteralPath (Join-Path $root 'docs') -Destination $output -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $root 'THIRD_PARTY_NOTICES.md') -Destination $output -Force
 Copy-Item -LiteralPath (Join-Path $root 'licenses') -Destination $output -Recurse -Force
 Write-Output "Published: $output"
