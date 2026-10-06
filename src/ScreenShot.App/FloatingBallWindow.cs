@@ -33,7 +33,7 @@ internal sealed class FloatingBallWindow : Window
             "<Button xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" Width=\"52\" Height=\"52\" Padding=\"0\" CornerRadius=\"26\" BorderThickness=\"1\" Background=\"{ThemeResource ButtonBackground}\" BorderBrush=\"{ThemeResource ButtonBorderBrush}\" />");
         button.Content=new FontIcon{Glyph="\uE722",FontSize=20};
         AutomationProperties.SetName(button,"AI ScreenShot 悬浮入口");
-        ToolTipService.SetToolTip(button,"AI ScreenShot · 点击展开，拖动贴边");
+        ToolTipService.SetToolTip(button,"AI ScreenShot · 点击展开或收起，拖动贴边");
         Content=button;
         button.Click+=(_,_)=>{if(!suppressClick&&!dragging)this.expand();};
         button.AddHandler(UIElement.PointerPressedEvent,new PointerEventHandler(PointerPressed),true);

@@ -2,6 +2,10 @@ using ScreenShot.Core;
 using System.Text.Json;
 
 int checks=0;
+checks+=PromptTests.Run();
+checks+=MarkdownTests.Run();
+checks+=PanelResizeTests.Run();
+checks+=PanelMoveTests.Run();
 checks+=await CodexProviderTests.RunAsync();
 void Check(bool condition,string message){if(!condition)throw new Exception(message);checks++;}
 var virtualDesktop=new PixelRect(-1920,-200,4480,1640);

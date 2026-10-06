@@ -74,7 +74,7 @@ internal sealed class ToolbarWindow : Window
         Add("设置",()=>{app.EndCaptureSession();app.ShowSettings();});more.Flyout=menu;
         Closed+=(_,_)=>{app.EndCaptureSession();app.Toolbar=null;};
     }
-    private string EffectivePrompt=>string.IsNullOrWhiteSpace(prompt.Text)?"请描述并分析这张截图":prompt.Text;
+    private string EffectivePrompt=>new SendRequest([],prompt.Text,null,app.Settings.DefaultPrompt).EffectivePrompt;
     public void Present(byte[] image,PixelRect region)
     {
         png=image;submittedTargets.Clear();prompt.Text="";status.Text=app.Settings.Workspace is {} name?"截图已就绪 · Codex："+name:"截图已就绪 · 请先选择 Codex 工作区";
@@ -110,7 +110,7 @@ internal sealed class ToolbarWindow : Window
         if(submittedTargets.Contains(target)){status.Text=target+" 已提交或结果未知，本次截图不会再次发送到该目标";return;}
         if(target=="Codex"&&(app.Codex.IsProvider?app.Settings.CodexDirectory==null:app.Settings.Workspace==null)){status.Text="请从 Codex 下拉菜单选择工作目录";return;}
         sending=true;SetBusy(true);status.Text="正在发送到 "+target;
-        var request=new SendRequest(png,prompt.Text,app.Settings.Workspace is {} name?new Workspace(name,app.Settings.CodexDirectory):null);
+        var request=new SendRequest(png,prompt.Text,app.Settings.Workspace is {} name?new Workspace(name,app.Settings.CodexDirectory):null,app.Settings.DefaultPrompt);
         app.SetCaptureSessionVisible(false);
         try
         {

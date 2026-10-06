@@ -18,13 +18,21 @@ public sealed record SendResult(SendState State, string Message)
     public bool Retryable => State == SendState.Failed;
 }
 public sealed record Workspace(string Name, string? DirectoryPath=null);
-public sealed record SendRequest(byte[] Png, string Prompt, Workspace? Workspace)
+public sealed record SendRequest(byte[] Png, string Prompt, Workspace? Workspace, string? DefaultPrompt=null)
 {
-    public string EffectivePrompt => string.IsNullOrWhiteSpace(Prompt) ? "请描述并分析这张截图" : Prompt;
+    public const string BuiltInDefaultPrompt="请描述并分析这张截图";
+    public string EffectivePrompt => !string.IsNullOrWhiteSpace(Prompt) ? Prompt :
+        !string.IsNullOrWhiteSpace(DefaultPrompt) ? DefaultPrompt : BuiltInDefaultPrompt;
 }
 public interface ISendTarget { Task<SendResult> SendAsync(SendRequest request, CancellationToken cancellationToken); }
 public sealed class Settings
 {
+    private string defaultPrompt=SendRequest.BuiltInDefaultPrompt;
+    public string DefaultPrompt
+    {
+        get=>defaultPrompt;
+        set=>defaultPrompt=string.IsNullOrWhiteSpace(value)?SendRequest.BuiltInDefaultPrompt:value;
+    }
     public string Browser { get; set; } = "Edge";
     public string? Workspace { get; set; }
     public string? CodexDirectory { get; set; }

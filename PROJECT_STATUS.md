@@ -1,13 +1,16 @@
 # 项目状态
 
 ## 已完成
+- 2026-10-06 新增左键移动工具栏和消息栏：工具栏空白处、消息标题及非滚动区空白背景捕获真实鼠标，超过 4 逻辑像素后按累计屏幕坐标共同移动，两栏保持对齐，单栏显示也可移动。排除按钮、输入框、滚动区、可选择文本和缩放 grip，保留边缘缩放；菜单、隐藏、缩放开始、关闭及捕获丢失时结束移动。目标显示器工作区限制位置，移动后读取 DPI 调整逻辑布局，使用 NoActivate/NoZOrder 保持前台及层级。本次运行中的手动位置由重新展开、操作恢复及新截图保留，重启仍按悬浮球默认定位；未新增持久位置配置或生产依赖。
+- 2026-10-06 修复顶部红框拖动高度不变：外侧顶部 padding 接入原生 grip，消息可见时 Toolbar Top/顶部角及 Window 边缘通过消息高度改变整体窗口高度，保持工具栏高度和窗口底边锚定，解决原 Toolbar 初始 56 到下限无法缩小的问题。后续按用户新要求合并显隐入口：只保留工具栏右侧一个下拉箭头，移除消息标题收起及额外恢复箭头；原生 MenuFlyout 提供“隐藏工具栏”和“隐藏消息栏”，点击箭头仅展开，选择条目后才执行。对应栏隐藏后菜单项改为“显示…”，工具栏隐藏时同一个按钮移至消息标题右侧；始终保留可见栏与恢复入口。消息、截图、提示词及高度保留，新截图恢复消息栏，悬浮球/Esc 仍整体收起。隐藏消息同时结束截图遮罩，provider 接收不取消，隐藏消息不自动滚动或重新展开。
+- 2026-10-04 完成七项悬浮界面优化：再次点击悬浮球收起工具栏/消息栏；底部“发送”默认走 Codex provider；用户及 AI 气泡使用可选择文本的原生 Markdown（标题、强调、引用、列表、代码、表格、分隔线及安全 HTTP(S) 链接），HTML/图片语法按文字显示；两栏四边四角支持左键拖动，共享宽度、各自高度并限制在显示器工作区；ChatGPT 官网发送只显示状态，不新增面板消息；设置新增默认提示词，手动输入优先、空设置恢复内置提示词；工具栏箭头独立隐藏，消息标题栏保留恢复箭头。正常面板两栏初始共同约 520 逻辑像素宽。流式 Markdown 以 80ms 合并最新快照，最终回复立即刷新，保留底部跟随和用户上滚位置。未增加生产依赖。
 - 2026-10-04 修复用户报告的 provider“回复失败、桌面没有新聊天”：自动查找原先选中 PATH/npm CLI 0.144.6，而当前桌面内置版本为 0.160.0；公开 config/read 确认配置模型为 gpt-6.1-sol，旧版本 model/list 不含此模型，新版本包含。生成图真实对照复现旧版本 terminal failed、无正文、错误涉及 model，新版本返回正确固定文本、流式输出及 completed。自动选择现优先正在运行/已安装的桌面内置 CLI，仍尊重显式路径；发送前检查所选 cwd 的模型目录、图片能力及 reasoning effort，不自动改模型或全局配置。无法回溯上一版未记录的用户请求错误全文，不将该对照声称为读取其原始失败详情。
 - 按用户确认使用独立 Codex provider，参考 D:/Git_Project/Amadeus 的 SDK/App Server 事件路由独立实现 .NET stdio JSONL 客户端。正常入口不操作桌面 UIA 或系统剪贴板；用户选择 cwd，近期目录/CLI 路径保存在设置中。当前 thread/start 使用 ephemeral=false、只读 sandbox、never 批准，并以 AI ScreenShot 标题命名；明确拒绝命名不阻止发送。PNG data URL 与提示词一次提交，按 threadId/turnId/itemId 路由，最终由 turn/completed 确认，final_answer 优先。失败显示协议类别/合法 HTTP 状态，保留正文，不回显自由格式错误详情；连接重试事件不提前结束或再次提交。停止等待原子解绑并保留最新正文，已接受的后台请求排空至终态；退出关闭自有进程。未引入生产依赖、未访问内部数据库、未记录内容、未修改 Amadeus。
 - 真实生成图验证通过：直接调用生产 CodexProviderTarget，自动选择桌面运行时，沿用 gpt-6.1-sol 默认配置，经模型预检后 Sent / 流式正文 / Completed，固定回复完全一致。独立公开 App Server 测试的持久会话在新进程 thread/read 可读，Codex 桌面的公开 read_thread 同样确认会话存在且已完成；未操作内部数据库，未重发用户的截图或“123”提示词。
-- 最新 scripts/verify.ps1 通过：App/Native Host 构建 0 warning / 0 error，437 项核心断言、15 项扩展测试与 3 项 JS 语法检查。包含安全错误分类、失败保留正文、服务端重试不重发、模型/图片/effort 预检、持久化/命名拒绝、阻塞写入期限、提交边界取消、后台释放等。provider-runtime-fix 独立包经 scripts/publish.ps1 生成，App DLL SHA-256 与验证构建一致；实际包 --floating-ui-test / --codex-provider-test 均 exit 0，分别验证原生面板注入回调和真实 CLI 账号/图片模型兼容。真实图片请求证据来自上项生产路径生成图测试，不将无发送诊断当作真实请求。
+- 最新 scripts/verify.ps1 通过：App/Native Host 构建 0 warning / 0 error，693 项核心断言（含新增 33 项移动策略）、15 项扩展测试与 3 项 JS 语法检查，既有顶部/默认提示词/Markdown/provider/UIA/剪贴板回归保留。panel-move 经 scripts/publish.ps1 生成，DLL SHA-256 与验证构建一致；实际包 --floating-ui-test exit 0，新增真实可视树移动区域命中、控件/可选文本/grip 排除、点击阈值、生产回调的实际 HWND 位置变化、尺寸/对齐/前台保持、收起/操作恢复位置保留及单栏移动验证。既有唯一显隐菜单 Invoke、内容保留、顶部可视树命中、窗口底边锚定、共享宽度、Markdown/设置/发送/防重发/流式/焦点/停止/生命周期检查均通过。此诊断使用生成图、公开原生控件 Invoke、可视树命中及生产移动/尺寸回调，没有注入操作系统鼠标、真实发送或桌面截图；不将无发送诊断当作真实图片请求。
 - 2026-10-04 修复图片剪贴板 `COMException / 0x800401D0`：本机安全日志确认阶段为“写入图片剪贴板”，Submitted=False；原方法合并 SetContent/Flush，无法确定哪个调用被拒绝。现备份、写入、Flush 和恢复分别只对剪贴板无法打开有界异步重试（最多 12 次，间隔 100ms），每次检查 sequence；写入成功后不重放写入、粘贴或发送，取消/用户复制新内容时停止。恢复使用独立 3 秒 token；未固化的 DataPackage/图片或备份 stream 保留至替换/退出，资源保留不授予覆盖用户内容的权限。原生复制按钮调用同步改为 async await；诊断阶段拆分写入/固化。新增 14 项核心回归，174 项最小断言通过，实际系统锁占用与新请求发送仍待验收。
 - 2026-10-04 修复再次报告的“Codex 已回复但仍正在发送、切换聊天后 Unknown”：真实完成页生产读取复现用户消息含正文及本地化星期时间 sibling，用户数/草稿/最终 footer 正常，但提示词匹配为 false。改为同一角色父分支中唯一 `bg-user-message` 正文子树匹配，排除旁边时间与活动；正文时间/重复行完整保留，多正文、跨父与不连续树拒绝。未知旧布局保留原有保守兼容路径。修复后同一真实完成页匹配为 true，以合成提交前基线调用生产 ConfirmSubmissionAsync / ObserveAsync，约 1.9 秒产生 Thinking / Completed、无 Unavailable，正文仅内存比对，前台不变、未发送新消息。
-- 2026-10-02 桌面悬浮 UI 第一版：启动显示 52 逻辑像素悬浮球，拖动后左右贴边吸附；左键展开、右键隐藏/设置、托盘恢复。原生 WinUI 工具栏包含 Codex、ChatGPT、复制、另存为、更多，基准尺寸 360 × 56；消息栏目 520 × 540，左边缘对齐、间距 12，按工作区限制窗口尺寸，支持浅色/深色。
+- 桌面悬浮 UI：启动显示 52 逻辑像素悬浮球，拖动后左右贴边吸附；左键展开/收起，右键隐藏/设置、托盘恢复。原生 WinUI 工具栏包含 Codex、ChatGPT、复制、另存为、更多及折叠箭头；初始两栏共同约 520 宽，工具栏高 56、消息栏高 540，间距 12，按工作区限制窗口尺寸，支持浅色/深色。
 - 消息栏目支持空状态、工作区选择、截图缩略图/详情、提示词、用户左侧/Codex 右侧气泡、正在思考/处理状态、停止等待及清空消息。最多保留 24 个内存气泡。正常截图使用新面板，旧 ToolbarWindow 保留给既有专项诊断。
 - 2026-10-02 Codex 等待修复：用户确认图片和提示词已送达，但安全日志显示“确认消息提交 / Submitted: True / TimeoutException”。删除全窗口同文节点计数及提交后 30 秒确认上限；发送前记录对应聊天的旧用户消息，发送后以新增且匹配提示词的用户角色和草稿清空/处理状态/已完成回复确认。短提示词、分割文本及非空 TextPattern 的处理状态都可确认，不只依赖空输入框。
 - 2026-10-03 Codex 欢迎页修复：安全日志为“记录提交上下文 / Submitted: False / InvalidOperationException”，图片和提示词仍在草稿。原实现错误要求输入框位于消息滚动区内；现分别识别主内容区域、输入状态与消息区，允许欢迎页尚无消息滚动区，提交后等待其出现，回复完成判断不再依赖输入框在消息节点之后。
@@ -22,7 +25,6 @@
 - 公开 UI Automation 观察绑定窗口、聊天区域与最新用户消息。回复尾部复制控件、空草稿/发送按钮与停止状态共同确认结束，并要求两次稳定读取，代码块复制不判定完成。记录旧侧栏身份，避免切到同文旧聊天误读；明确窗口关闭/切换/后续用户消息才结束关联，不自动重发，不取消 Codex 任务。
 - 图片粘贴仍短暂需要 Codex 输入焦点。提示词确认及发送按钮就绪后释放原剪贴板，提交后只恢复一次原窗口，尊重期间用户的剪贴板/焦点修改；等待与完成不激活或置顶 Codex。后台回调结束前先处理已排队进度，避免真实完成回复被发送回执覆盖。
 - 窗口生命周期保护：取消/重新选区后旧图片解码不重新打开面板；收起或操作期间关闭截图详情，旧解码不抢回焦点；Alt+F4 关闭面板同时结束截图会话。截图前隐藏自身窗口，ChatGPT/保存暂时隐藏，Codex 保持面板可见；关闭后旧回调不影响新窗口。
-- scripts/verify.ps1 最新通过：App/Native Host 构建 0 warning / 0 error，437 项核心/Codex provider/UIA/剪贴板断言、15 个扩展测试与三个 JS 语法检查；既有 UIA 与剪贴板回归保留。
 - 真实已完成聊天生产源码只读探针 15 项断言通过：读取 1 个用户且匹配、最终 footer/正文与公开进度，HasSend=False / HasStop=False / 草稿清空仍正确 Completed。以明确标记的合成提交前基线验证生产 ConfirmSubmissionAsync 与 ObserveAsync，产生 Thinking/Completed 并在约 2.4 秒返回，正文仅内存比对，前台未改变；已完成聊天正确拒绝作为新草稿。未导航、粘贴、发送，不将其声称为真实发送端到端验收。
 - 最新 ready-fix 包 --codex-ready-test MathLearning 实跑 exit 0：实际 EXE 在用户保留的真实空欢迎页确认目标输入框就绪、占位规范为空、无附件、错误工作区拒绝及 Prepare 成功；没有激活、导航、剪贴板访问或提交消息。
 - 最新 ready-fix 包 --codex-window-test 实跑 exit 0：从实际 EXE 调用生产定位器，识别当前真实 Codex 发送窗口、5 个唯一工作区动作，指定工作区仍对应同一主窗口。只读公开控件，不激活窗口、不导航、不读写剪贴板、不提交消息；日志不记录工作区名称或聊天内容。
@@ -43,7 +45,7 @@
 ## 未完成
 - 生产 provider 的真实生成图、流式正文和终态已通过；新版从实际框选、目录选择到消息面板回显的完整用户操作，以及回复期间手动切换 Codex 桌面聊天的联动仍待桌面验收。原生 UI 注入回调和后台真实发送分别通过，不声称已经共同完成此操作验收。
 - 旧 UIA ready-fix 的送达及真实完成页只读解析证据保留为历史诊断，正常入口已转 provider，不再将旧桌面发送全过程作为新版验收路径。
-- 实际鼠标拖动悬浮球、贴边、混合 DPI 跨屏、屏幕边缘面板、截图拖动顺滑程度、保存对话框、高对比度和剪贴板并发修改的桌面验收。
+- 实际鼠标移动两栏、拖动悬浮球与两栏四边/四角缩放、贴边、混合 DPI 跨屏、屏幕边缘面板、截图拖动顺滑程度、保存对话框、高对比度和剪贴板并发修改的桌面验收。移动/缩放策略与真实 WinUI 生产回调通过，不代表真实鼠标及多屏操作验收。
 - Chrome 重新加载原扩展后的自动连接、浏览器先启动/程序后启动、程序重启、worker 休眠恢复，以及官网图片上传/发送。Node 模拟测试和 Host 握手不能替代真实浏览器验收。
 
 ## 当前 Bug
@@ -52,11 +54,12 @@
 - 旧 UIA 报告“Codex 已回复但仍正在发送，切换后 Unknown”已再次在真实完成页复现为本地化星期时间被拼入用户正文，提示词匹配失败；本轮已修复并通过生产确认/回复只读观察。新请求从截图发送到流式更新和完成的全过程仍需新版实际验收，未将合成基线验证当作真实发送验收。
 - 此前 0x800401D3、0x80040201 的逐格式备份/控件重获取修复保留；具体原始剪贴板格式未识别，不将本次单次送达当作所有格式验收。
 - 用户报告的框选拖动卡顿已修复全屏同步合成路径并通过生成像素/性能检查；真实多屏顺滑程度和闪动/错位仍待验收。
-- Codex 可访问性结构可能随版本变化，无法可靠确认提交时返回 Failed/Unknown，无法继续读取已提交回复时保留已有正文并明确转到 Codex 查看。仅显示公开且可读取的文本/工作摘要，不还原全部 Markdown、图片或收起的工具历史；ChatGPT 只展示发送回执。
-- 当前 Computer Use 仅提供 Codex 内置浏览器，没有 Chrome 自动化入口，无法替用户重新加载已安装扩展及验收官网发送。
+- 旧 UIA 诊断仍受 Codex 可访问性结构变化影响；正常 provider 使用公开事件确认提交/终态，读取中断保留正文并显示状态。原生 Markdown 支持已列常见格式，暂不支持数学公式、远程图片或完整 CommonMark；HTML 不执行。ChatGPT 发送仅显示状态，不在面板回显对话；本次尚未执行真实官网图片上传/发送验收。
 - 旧 Codex LocalCache 部署文件保留，不作为正式 Host 依赖；Codex 内 Test-Path 不能证明 Chrome 可见，应使用 -VerifyOnly 检查。
 
 ## 最近修改文件
+- 2026-10-06：src/ScreenShot.App/FloatingPanelWindow.cs（移动区域、窗口位置/DPI/工作区、手动位置及生命周期；此前唯一显隐菜单和顶部布局）；PanelMoveController.cs、PanelMovePolicy.cs（鼠标捕获/来源过滤/累计坐标及位置限制）；App.xaml.cs（原生移动区域命中与 HWND 几何/恢复回归；既有菜单 Invoke/尺寸检查）；tests/ScreenShot.Tests/PanelMoveTests.cs、Program.cs、ScreenShot.Tests.csproj（33 项移动策略断言及接入）；README.md、PROJECT_STATUS.md（操作与验证）。本日此前 PanelResizeController.cs、PanelResizePolicy.cs 和 tests/ScreenShot.Tests/PanelResizeTests.cs 的顶部命中、来源解析及 26 项回归完整保留；更早未提交七项优化完整保留。
+- 本次七项优化：src/ScreenShot.App/FloatingBallWindow.cs、FloatingPanelWindow.cs、App.xaml.cs（交互、发送入口、设置及原生诊断）；PanelResizeController.cs、PanelResizePolicy.cs（鼠标捕获、共享宽度及边界策略）；MarkdownMessageView.cs、src/ScreenShot.Core/MarkdownDocument.cs（原生渲染与解析）；src/ScreenShot.Core/Contracts.cs、src/ScreenShot.App/ToolbarWindow.cs（默认提示词及兼容旧入口）；tests/ScreenShot.Tests/PromptTests.cs、MarkdownTests.cs、PanelResizeTests.cs、Program.cs、ScreenShot.Tests.csproj（回归）；README.md、PROJECT_STATUS.md（操作和验证）。以下为此前 provider/UIA 修复涉及文件。
 - src/ScreenShot.App/CodexProviderExecutable.cs、CodexProviderModelPolicy.cs、CodexProviderFailure.cs、CodexProviderTarget.cs、CodexProviderEvents.cs：本轮桌面运行时优先、模型预检、安全错误反馈、持久会话/命名及失败流式处理。CodexRpcClient.cs：此前 JSONL 传输与期限。CodexDirectoryPicker.cs、FloatingPanelWindow.cs、App.xaml.cs、ToolbarWindow.cs、CodexTarget.cs、src/ScreenShot.Core/Contracts.cs：原生目录选择、设置及正常入口；App 连接诊断同步检查模型；旧 UIA 保留诊断。
 - tests/ScreenShot.Tests/CodexProviderTests.cs、ScreenShot.Tests.csproj、Program.cs：平台无关模拟协议、安全失败分类/预检/命名拒绝及既有身份/终态/取消/阻塞写入回归；README.md：provider 操作、持久化、CLI 优先级与诊断。
 - src/ScreenShot.App/FloatingBallWindow.cs、FloatingPanelWindow.cs：悬浮球、横向工具栏、原生消息面板、截图详情和操作状态。
@@ -70,6 +73,8 @@
 - README.md、PROJECT_STATUS.md：新版操作、布局、回复读取范围与实际验收状态。
 
 ## 已确认设计决策
+- 面板仍为同一个无标题栏 WinUI 窗口，两块 surface 共享宽度并一起移动；工具栏空白处、消息标题和非滚动区空白背景用于移动，边缘/角用于缩放，控件与可选文本保留原有操作。本次运行内保留手动位置，不将位置持久化为设置。顶部外侧与 Toolbar Top/顶部角改变整体高度，其余栏边缘分别调整高度。显隐只使用一个 Button + 原生 MenuFlyout，两项根据当前状态显示“隐藏/显示工具栏”和“隐藏/显示消息栏”；工具栏可见时按钮在其右端，工具栏隐藏时同一个按钮移至消息标题右端，不产生额外箭头或无恢复入口的空窗口。菜单及拖动入口参考 Astryx 的短动作菜单、控件操作隔离和无障碍提示约定，仅借鉴交互，不增加依赖。拖动使用真实鼠标左键捕获与屏幕坐标累计位移，不固定坐标定位控件。底部发送与工具栏 Codex 复用同一发送/防重发流程。ChatGPT 保留既有官网上传提交流程，默认提示词与旧设置/API 兼容。
+- Markdown 使用纯 .NET 解析和原生 RichTextBlock/Run/Hyperlink/ScrollViewer，不使用 WebView、不拉取远程图片、不执行 HTML；仅开放合法 HTTP(S) 链接，常见块/行内语法可逐步渲染。80ms 内只渲染最新流式快照，普通最终 Text 立即刷新；收起/卸载不会重新打开窗口。
 - 用户明确选择“直接用 provider，在截图工具消息栏显示回复，工作目录由我选择”，后续报告期望 Codex 中存在新聊天；正常请求现创建独立持久 thread（ephemeral=false）并命名，不依赖桌面当前聊天。未指定 CLI 时优先桌面内置版本；沿用其模型/登录，经公开 account/read、config/read 和 model/list 预检，不读登录令牌。准备/本地回执各有 90 秒期限，回复读取无固定期限；连接检测 30 秒。只读 sandbox 与 never 批准，不放宽权限或改变 CLI 全局配置；正常 Codex 发送不访问剪贴板，ChatGPT 路径不变。
 - .NET 10 / WinUI 3 / Windows App SDK / Win32 / FlaUI.UIA3；原生 Windows 桌面控件，借鉴 Astryx 的图标提示、状态与无障碍约定，不引入 Web UI 或生产依赖。
 - 默认 52 逻辑像素入口，工具栏负责操作，大消息栏目负责内容；用户气泡左侧、Codex 气泡右侧。本工具的图片/提示词/回复只保留在内存，不写入内容日志；Codex 自身按普通持久聊天保存，截图工具不访问其内部数据库。
@@ -85,6 +90,6 @@
 - 实际 Chrome 扩展 ID 为 dmcdjpekhmjmcbjcaiillldpekdopocd，注册应使用浏览器实测 ID。alarms 不新增网页权限，重连不重放业务任务，无法修复错误注册。
 
 ## 后续计划
-- 最新便携包 dist/AIScreenShot-win-x64-provider-runtime-fix 已通过 scripts/publish.ps1 生成，旧 codex-provider / clipboard-busy-fix 等包保留。先从托盘退出旧实例，再运行新版 ScreenShot.App.exe，并从消息标题栏选择工作目录。若设置中曾手动填写旧 CLI 路径，清空使其自动选择桌面版本，或显式指定新版。
+- 最新便携包 dist/AIScreenShot-win-x64-panel-move 已通过 scripts/publish.ps1 生成，旧 visibility-menu / panel-resize-fix / ui-enhancements 等包保留。先从托盘退出旧实例，再运行新版 ScreenShot.App.exe，左键拖动工具栏空白处或消息标题/背景，使用唯一箭头的“隐藏工具栏/隐藏消息栏”菜单及动态显示项；实际鼠标及混合 DPI 多屏仍待用户桌面验收。工作目录与默认提示词操作保留；显式旧 CLI 路径可清空使其自动选择桌面版本，或指定新版。
 - 完成真实 Codex 回复与多屏桌面验收；Chrome 重新加载原扩展后验证自动连接，再验证官网发送。
-- 当前工作区为 Git 仓库；本轮按用户明确要求整理上述修改并执行本地 Git 提交，不执行 push。提交包括原生悬浮消息面板、Codex provider/持久会话、旧 UIA 与剪贴板修复、回归测试及文档；构建产物和临时诊断不纳入。
+- 此前本地提交 cc4d1d9 包含原生面板、Codex provider/持久会话及旧修复。本次按用户明确要求，将七项界面优化、顶部缩放修复、唯一显隐菜单、面板移动、相关回归及文档合并为一次本地 Git 提交；提交前 scripts/verify.ps1 再次通过，未 push。构建产物、便携包与临时诊断不纳入仓库。

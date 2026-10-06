@@ -136,12 +136,44 @@ public partial class App : Application
             foreach(var theme in new[]{ElementTheme.Light,ElementTheme.Dark})
             {
                 root.RequestedTheme=theme;await Task.Delay(400);
-                if(Panel.MessageSurface.ActualWidth<=Panel.ToolbarSurface.ActualWidth||Panel.MessageSurface.ActualHeight<=Panel.ToolbarSurface.ActualHeight)throw new InvalidOperationException("Message surface must be larger than toolbar in both dimensions");
+                if(Math.Abs(Panel.MessageSurface.ActualWidth-Panel.ToolbarSurface.ActualWidth)>1||Panel.MessageSurface.ActualHeight<=Panel.ToolbarSurface.ActualHeight)throw new InvalidOperationException("Toolbar/message widths must match and the message panel must remain taller");
                 var toolbarOrigin=Panel.ToolbarSurface.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point());
                 var messageOrigin=Panel.MessageSurface.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point());
                 if(Math.Abs(toolbarOrigin.X-messageOrigin.X)>1)throw new InvalidOperationException("Toolbar and messages are not left aligned");
                 await File.WriteAllBytesAsync(Path.Combine(output,$"floating-{theme}.png"),await RuntimeDiagnostics.RenderAsync(root));
             }
+            string visibilityAndResizeChecks=await VerifyPanelVisibilityAndTopResizeAsync(Panel,root,output);
+            string moveChecks=await VerifyPanelMoveAsync(Panel,root,output);
+            ToggleFloatingPanel();if(Panel.IsExpanded||Native.IsWindowVisible(Panel.Handle))throw new InvalidOperationException("A second ball activation did not hide both panels");
+            ToggleFloatingPanel();if(!Panel.IsExpanded||!Native.IsWindowVisible(Panel.Handle))throw new InvalidOperationException("Ball activation did not reopen both panels");
+            Panel.ToggleToolbar();await Task.Delay(150);
+            if(Panel.IsToolbarVisible||Panel.ToolbarSurface.Visibility!=Visibility.Collapsed||Panel.MessageSurface.Visibility!=Visibility.Visible)throw new InvalidOperationException("Toolbar collapse hid the message panel or did not hide the toolbar");
+            await File.WriteAllBytesAsync(Path.Combine(output,"floating-toolbar-collapsed.png"),await RuntimeDiagnostics.RenderAsync(root));
+            Panel.ToggleToolbar();await Task.Delay(150);
+            foreach(var pane in new[]{PanelResizePane.Toolbar,PanelResizePane.Message})
+            {
+                Panel.ResizeForDiagnostic(pane,PanelResizeEdges.Left|PanelResizeEdges.Bottom,-32,24);await Task.Delay(150);
+                if(Math.Abs(Panel.MessageSurface.ActualWidth-Panel.ToolbarSurface.ActualWidth)>1)throw new InvalidOperationException("Resizing a surface broke shared width alignment");
+                Native.GetWindowRect(Panel.Handle,out var resizedBounds);
+                var resizeWork=new Native.MonitorInfo{Size=(uint)System.Runtime.InteropServices.Marshal.SizeOf<Native.MonitorInfo>()};
+                Native.GetMonitorInfo(Native.MonitorFromPoint(new Native.Point{X=(resizedBounds.Left+resizedBounds.Right)/2,Y=(resizedBounds.Top+resizedBounds.Bottom)/2},2),ref resizeWork);
+                if(resizedBounds.Left<resizeWork.Work.Left||resizedBounds.Top<resizeWork.Work.Top||resizedBounds.Right>resizeWork.Work.Right||resizedBounds.Bottom>resizeWork.Work.Bottom)throw new InvalidOperationException("Surface resizing escaped the monitor work area");
+            }
+            await File.WriteAllBytesAsync(Path.Combine(output,"floating-resized.png"),await RuntimeDiagnostics.RenderAsync(root));
+            var markdown=new MarkdownMessageView{Text="# 标题\n\n**粗体**、*斜体*与 `code`。\n\n> 引用\n\n- 第一项\n- 第二项\n\n```csharp\nConsole.WriteLine(\"fixture\");\n```\n\n| 项目 | 状态 |\n| --- | --- |\n| Markdown | 可用 |"};
+            if(markdown.RenderedBlockCount<6||markdown.RenderedControlCount<=markdown.RenderedBlockCount)throw new InvalidOperationException("Native Markdown did not produce rich controls for its blocks");
+            var beforeStreaming=markdown.Document;string table="| 序号 | 状态 |\n| --- | --- |";int renderedCallbacks=0;
+            for(int row=0;row<120;row++)
+            {
+                table+=$"\n| {row} | **生成内容** |";
+                markdown.SetStreamingText(table,()=>renderedCallbacks++);
+            }
+            if(markdown.Text!=table||!ReferenceEquals(markdown.Document,beforeStreaming)||renderedCallbacks!=0)throw new InvalidOperationException("Markdown streaming did not coalesce pending snapshots while preserving raw text");
+            await Task.Delay(180);
+            if(markdown.Document.Blocks.Single() is not MarkdownTable renderedTable||renderedTable.Rows.Count!=121||renderedCallbacks!=1)throw new InvalidOperationException("Markdown streaming did not render the latest complete snapshot once");
+            markdown.SetStreamingText("## 最终内容",()=>renderedCallbacks++);markdown.Text="## 最终内容";
+            await Task.Delay(100);
+            if(markdown.Document.Blocks.Single() is not MarkdownHeading||renderedCallbacks!=1)throw new InvalidOperationException("An immediate Markdown update did not flush pending rendering and cancel its callback");
             Panel.ShowProcessingPreview();await Task.Delay(250);
             await File.WriteAllBytesAsync(Path.Combine(output,"floating-processing.png"),await RuntimeDiagnostics.RenderAsync(root));
             var previewOne=Panel.ShowPreviewAsync(fixture);var previewTwo=Panel.ShowPreviewAsync(fixture);await Task.WhenAll(previewOne,previewTwo);
@@ -170,10 +202,137 @@ public partial class App : Application
             nint closedOverlayHandle=overlay.Handle;Panel.Close();
             if(Panel!=null||Native.IsWindowVisible(closedOverlayHandle))throw new InvalidOperationException("Closing message panel did not dismiss capture overlay");
             string codexChecks=await VerifyCodexPanelSendAsync(fixture);
-            await File.WriteAllTextAsync(Path.Combine(output,"floating-ui-test.txt"),"PASS: 52 logical pixel native ball, panel creation, empty state and Light/Dark generated previews\nPASS: toolbar/message left alignment; messages larger in both dimensions\nPASS: processing state, operation hide/restore, successful capture dismissal retains messages\nPASS: on-top details, concurrent preview replacement, collapsed/operation preview stays closed after decoding\nPASS: hidden ball remains hidden, collapse/reopen, cancelled capture does not reopen\nPASS: closing message panel dismisses capture overlay\n"+codexChecks+"No desktop screenshot, clipboard access, browser connection, or real send was performed.\n");
+            string composerChecks=await VerifyComposerAndBrowserAsync(fixture);
+            await File.WriteAllTextAsync(Path.Combine(output,"floating-ui-test.txt"),"PASS: 52 logical pixel native ball, panel creation, empty state and Light/Dark generated previews\nPASS: ball toggles both panels; toolbar arrow collapses independently and restores\nPASS: shared toolbar/message width alignment through production resize callbacks; monitor bounds retained\nPASS: native Markdown controls render headings, emphasis, quote, list, code and table\nPASS: 120 streaming Markdown snapshots retain raw text immediately, render the latest table once, and flush final content\nPASS: processing state, operation hide/restore, successful capture dismissal retains messages\nPASS: on-top details, concurrent preview replacement, collapsed/operation preview stays closed after decoding\nPASS: hidden ball remains hidden, collapse/reopen, cancelled capture does not reopen\nPASS: closing message panel dismisses capture overlay\n"+visibilityAndResizeChecks+moveChecks+codexChecks+composerChecks+"No desktop screenshot, clipboard access, browser connection, or real send was performed.\n");
         }
         catch(Exception e){await File.WriteAllTextAsync(Path.Combine(output,"floating-ui-test.txt"),"FAIL: "+e.GetType().Name+": "+e.Message);Environment.ExitCode=1;}
         finally{Shutdown();}
+    }
+    private static async Task<string> VerifyPanelMoveAsync(FloatingPanelWindow panel,FrameworkElement root,string output)
+    {
+        static IEnumerable<DependencyObject> Descendants(DependencyObject root)
+        {
+            var pending=new Stack<DependencyObject>();pending.Push(root);
+            while(pending.TryPop(out var current))
+            {
+                yield return current;
+                for(int index=0;index<Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(current);index++)pending.Push(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(current,index));
+            }
+        }
+        Windows.Foundation.Point ToolbarPoint()
+        {
+            var origin=panel.ToolbarSurface.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point());
+            return new(origin.X+PanelResizePolicy.GripThickness+4,origin.Y+panel.ToolbarSurface.ActualHeight/2);
+        }
+        Windows.Foundation.Point TitlePoint()=>panel.MessageDragTitle.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point(8,panel.MessageDragTitle.ActualHeight/2));
+        var textBox=Descendants(root).OfType<TextBox>().Single();var selectedText=Descendants(root).OfType<Microsoft.UI.Xaml.Controls.RichTextBlock>().First();
+        if(panel.CanMoveSourceForDiagnostic(panel.VisibilityMenuButton)||panel.CanMoveSourceForDiagnostic(panel.ComposerSendButton)||panel.CanMoveSourceForDiagnostic(textBox)||panel.CanMoveSourceForDiagnostic(selectedText)||!panel.CanMoveSourceForDiagnostic(panel.MessageDragTitle))
+            throw new InvalidOperationException("Move source filtering did not protect controls and selectable Markdown text");
+        Native.GetWindowRect(panel.Handle,out var original);
+        if(!panel.MoveAtForDiagnostic(ToolbarPoint(),1,1))throw new InvalidOperationException("Toolbar background did not receive a native move hit");
+        Native.GetWindowRect(panel.Handle,out var clicked);
+        if(clicked.Left!=original.Left||clicked.Top!=original.Top)throw new InvalidOperationException("A small movement below the drag threshold repositioned the panel");
+        var toolbarOrigin=panel.ToolbarSurface.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point());
+        if(panel.MoveAtForDiagnostic(new Windows.Foundation.Point(toolbarOrigin.X+panel.ToolbarSurface.ActualWidth/2,toolbarOrigin.Y+3),24,24))throw new InvalidOperationException("A resize grip also began moving the panel");
+        foreach(bool toolbar in new[]{true,false})
+        {
+            Native.GetWindowRect(panel.Handle,out var before);
+            var info=new Native.MonitorInfo{Size=(uint)System.Runtime.InteropServices.Marshal.SizeOf<Native.MonitorInfo>()};
+            Native.GetMonitorInfo(Native.MonitorFromPoint(new Native.Point{X=(before.Left+before.Right)/2,Y=(before.Top+before.Bottom)/2},2),ref info);
+            int dx=before.Left-info.Work.Left>=24?-24:24,dy=before.Top-info.Work.Top>=24?-24:24;
+            var expected=PanelMovePolicy.Move(before.Left,before.Top,before.Right-before.Left,before.Bottom-before.Top,dx,dy,info.Work.Left,info.Work.Top,info.Work.Right,info.Work.Bottom);
+            nint foreground=Native.GetForegroundWindow();
+            if(!panel.MoveAtForDiagnostic(toolbar?ToolbarPoint():TitlePoint(),dx,dy))throw new InvalidOperationException("Toolbar/message title did not receive its move hit");
+            await Task.Delay(100);Native.GetWindowRect(panel.Handle,out var after);
+            if(after.Left!=expected.X||after.Top!=expected.Y||after.Right-after.Left!=before.Right-before.Left||after.Bottom-after.Top!=before.Bottom-before.Top||Native.GetForegroundWindow()!=foreground||Math.Abs(panel.ToolbarSurface.ActualWidth-panel.MessageSurface.ActualWidth)>1)
+                throw new InvalidOperationException("Panel movement changed dimensions, alignment, focus or its expected screen position");
+        }
+        Native.GetWindowRect(panel.Handle,out var movedBounds);
+        panel.Collapse();panel.Open();await Task.Delay(100);Native.GetWindowRect(panel.Handle,out var reopened);
+        if(reopened.Left!=movedBounds.Left||reopened.Top!=movedBounds.Top)throw new InvalidOperationException("Reopening reset a manually moved panel beside the floating ball");
+        panel.HideForOperation();panel.RestoreAfterOperation();await Task.Delay(100);Native.GetWindowRect(panel.Handle,out reopened);
+        if(reopened.Left!=movedBounds.Left||reopened.Top!=movedBounds.Top)throw new InvalidOperationException("Operation restore reset a manually moved panel");
+        panel.ToggleMessage();await Task.Delay(100);
+        if(!panel.MoveAtForDiagnostic(ToolbarPoint(),-12,-12))throw new InvalidOperationException("Toolbar-only panel could not move");
+        panel.ToggleMessage();panel.ToggleToolbar();await Task.Delay(100);
+        if(!panel.MoveAtForDiagnostic(TitlePoint(),-12,-12))throw new InvalidOperationException("Message-only panel could not move");
+        panel.ToggleToolbar();await Task.Delay(100);
+        await File.WriteAllBytesAsync(Path.Combine(output,"floating-moved.png"),await RuntimeDiagnostics.RenderAsync(root));
+        return "PASS: toolbar background and message title hit native move areas; controls, selectable text and resize grips cannot begin a move\nPASS: movement uses a drag threshold, preserves size/alignment/focus, and retains the manual position through collapse and operation restore\nPASS: toolbar-only and message-only panels remain movable\n";
+    }
+    private static async Task<string> VerifyPanelVisibilityAndTopResizeAsync(FloatingPanelWindow panel,FrameworkElement root,string output)
+    {
+        static void SingleMenuButton(FrameworkElement root)
+        {
+            int count=0;var elements=new Stack<DependencyObject>();elements.Push(root);
+            while(elements.TryPop(out var element))
+            {
+                if(element is Button button&&Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(button)=="显示或隐藏工具栏和消息栏")count++;
+                for(int index=0;index<Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(element);index++)elements.Push(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(element,index));
+            }
+            if(count!=1)throw new InvalidOperationException("The panel did not retain exactly one visibility menu button");
+        }
+        static async Task InvokeAsync(Button button)
+        {
+            var peer=new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(button);
+            var invoke=(Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider?)peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke);
+            if(invoke==null)throw new InvalidOperationException("Pane toggle has no native Invoke pattern");
+            invoke.Invoke();await Task.Delay(150);
+        }
+        async Task SelectMenuItemAsync(bool toolbar,string expectedToolbar,string expectedMessage,bool saveMenuPreview=false)
+        {
+            bool beforeToolbar=panel.IsToolbarVisible,beforeMessage=panel.IsMessageVisible;
+            await InvokeAsync(panel.VisibilityMenuButton);
+            if(!panel.VisibilityMenuOpen||panel.ToolbarVisibilityItem.Text!=expectedToolbar||panel.MessageVisibilityItem.Text!=expectedMessage||panel.IsToolbarVisible!=beforeToolbar||panel.IsMessageVisible!=beforeMessage)
+                throw new InvalidOperationException("Opening the visibility menu changed panes or did not present the expected two actions");
+            SingleMenuButton(root);
+            if(saveMenuPreview)
+            {
+                var popup=Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot).First(item=>item.Child is MenuFlyoutPresenter);
+                await File.WriteAllBytesAsync(Path.Combine(output,"floating-visibility-menu.png"),await RuntimeDiagnostics.RenderAsync(popup.Child));
+            }
+            var itemPeer=new Microsoft.UI.Xaml.Automation.Peers.MenuFlyoutItemAutomationPeer(toolbar?panel.ToolbarVisibilityItem:panel.MessageVisibilityItem);
+            var itemInvoke=(Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider?)itemPeer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke);
+            if(itemInvoke==null)throw new InvalidOperationException("Visibility menu action has no native Invoke pattern");
+            itemInvoke.Invoke();await Task.Delay(150);
+            if(panel.VisibilityMenuOpen)throw new InvalidOperationException("Selecting a visibility action did not dismiss the menu");
+            SingleMenuButton(root);
+        }
+        foreach(var pane in new[]{PanelResizePane.Toolbar,PanelResizePane.Window})
+        {
+            Native.GetWindowRect(panel.Handle,out var before);double toolbarHeight=panel.ToolbarSurface.ActualHeight;
+            double x=root.ActualWidth/2,y=pane==PanelResizePane.Window?3:panel.ToolbarSurface.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point()).Y+3;
+            if(!panel.ResizeAtForDiagnostic(new Windows.Foundation.Point(x,y),0,32,pane,PanelResizeEdges.Top))throw new InvalidOperationException("The displayed top resize band did not receive its visual hit");
+            await Task.Delay(100);Native.GetWindowRect(panel.Handle,out var smaller);
+            if(smaller.Top<=before.Top||smaller.Bottom!=before.Bottom||smaller.Bottom-smaller.Top>=before.Bottom-before.Top||Math.Abs(panel.ToolbarSurface.ActualHeight-toolbarHeight)>1)
+                throw new InvalidOperationException("Top dragging did not shrink the whole panel while keeping its bottom and toolbar height");
+            y=pane==PanelResizePane.Window?3:panel.ToolbarSurface.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point()).Y+3;
+            if(!panel.ResizeAtForDiagnostic(new Windows.Foundation.Point(x,y),0,-32,pane,PanelResizeEdges.Top))throw new InvalidOperationException("The resized top band no longer received hits");
+            await Task.Delay(100);Native.GetWindowRect(panel.Handle,out var restored);
+            if(Math.Abs(restored.Top-before.Top)>1||Math.Abs(restored.Bottom-before.Bottom)>1||Math.Abs(panel.ToolbarSurface.ActualHeight-toolbarHeight)>1)
+                throw new InvalidOperationException("Top dragging did not grow the panel back to its starting size");
+        }
+        panel.PromptText="生成的菜单折叠诊断提示词";
+        string reply=panel.ResponseText;string prompt=panel.PromptText;int count=panel.MessageCount;
+        double previousMessageHeight=panel.MessageSurface.ActualHeight;
+        await SelectMenuItemAsync(false,"隐藏工具栏","隐藏消息栏",true);
+        Native.GetWindowRect(panel.Handle,out var collapsed);
+        if(panel.IsMessageVisible||panel.MessageSurface.Visibility!=Visibility.Collapsed||!panel.IsToolbarVisible||!panel.IsExpanded||!Native.IsWindowVisible(panel.Handle)||!panel.VisibilityMenuInToolbar||collapsed.Bottom-collapsed.Top>=previousMessageHeight)
+            throw new InvalidOperationException("The message collapse button did not leave a visible toolbar and restore control");
+        await File.WriteAllBytesAsync(Path.Combine(output,"floating-message-collapsed.png"),await RuntimeDiagnostics.RenderAsync(root));
+        panel.ResizeForDiagnostic(PanelResizePane.Window,PanelResizeEdges.Right,24,0);await Task.Delay(100);
+        await SelectMenuItemAsync(false,"隐藏工具栏","显示消息栏");
+        if(!panel.IsMessageVisible||!panel.IsToolbarVisible||panel.MessageCount!=count||panel.ResponseText!=reply||panel.PromptText!=prompt||Math.Abs(panel.MessageSurface.ActualHeight-previousMessageHeight)>1||Math.Abs(panel.MessageSurface.ActualWidth-panel.ToolbarSurface.ActualWidth)>1)
+            throw new InvalidOperationException("Restoring messages lost content, height or shared width after toolbar-only resizing");
+        await SelectMenuItemAsync(true,"隐藏工具栏","隐藏消息栏");
+        if(panel.VisibilityMenuInToolbar||panel.IsToolbarVisible||!panel.IsMessageVisible)throw new InvalidOperationException("The single menu button did not move to the visible message header");
+        await File.WriteAllBytesAsync(Path.Combine(output,"floating-menu-in-message.png"),await RuntimeDiagnostics.RenderAsync(root));
+        await SelectMenuItemAsync(false,"显示工具栏","隐藏消息栏");
+        if(!panel.IsToolbarVisible||panel.IsMessageVisible||!Native.IsWindowVisible(panel.Handle))throw new InvalidOperationException("Collapsing messages without a toolbar hid both panes");
+        await SelectMenuItemAsync(true,"隐藏工具栏","显示消息栏");
+        if(panel.IsToolbarVisible||!panel.IsMessageVisible)throw new InvalidOperationException("Toolbar collapse left the window without a visible pane");
+        await SelectMenuItemAsync(true,"显示工具栏","隐藏消息栏");
+        return "PASS: toolbar top and outer padding hit real native resize grips; downward/upward drags shrink/grow the full panel with a fixed bottom and toolbar height\nPASS: exactly one visibility arrow opens a two-action native menu without hiding panes; action Invoke hides/restores each pane and dismisses the menu\nPASS: menu reuses the same button in the visible pane; contents, prompt, height and shared width survive hiding and restoring\n";
     }
     private async Task<string> VerifyCodexPanelSendAsync(byte[] fixture)
     {
@@ -329,6 +488,61 @@ public partial class App : Application
         }
         finally{Settings.Workspace=previousWorkspace;}
     }
+    private async Task<string> VerifyComposerAndBrowserAsync(byte[] fixture)
+    {
+        string previousDefault=Settings.DefaultPrompt;string? previousWorkspace=Settings.Workspace;
+        try
+        {
+            Settings.DefaultPrompt="# 生成图默认提示词\n\n请分析**生成图片**。";Settings.Workspace="UI 诊断工作区";
+            ShowSettings();
+            var settingRows=(StackPanel)((ScrollViewer)settingsWindow!.Content).Content;
+            var settingPrompt=settingRows.Children.OfType<TextBox>().Single(box=>Equals(box.Header,"默认提示词"));
+            static string Newlines(string value)=>value.Replace("\r\n","\n",StringComparison.Ordinal).Replace('\r','\n');
+            if(Newlines(settingPrompt.Text)!=Newlines(Settings.DefaultPrompt)||!settingPrompt.AcceptsReturn)throw new InvalidOperationException("Default prompt settings editor was not populated");
+            settingsWindow.Close();
+            var requests=new List<SendRequest>();int browserCalls=0;SendState browserState=SendState.Sent;
+            Panel?.Close();
+            var panel=new FloatingPanelWindow(this,(request,update,_)=>
+            {
+                requests.Add(request);update(new(CodexReplyPhase.Submitted));update(new(CodexReplyPhase.Thinking,"## 生成回复\n\n**正文**","正在回复"));
+                update(new(CodexReplyPhase.Completed,"## 生成回复\n\n**正文**\n\n```text\nfixture\n```"));
+                return Task.FromResult(new SendResult(SendState.Sent,"诊断提交成功"));
+            },(request,_)=>
+            {
+                browserCalls++;
+                if(request.EffectivePrompt!=Settings.DefaultPrompt||!request.Png.AsSpan().SequenceEqual(fixture))throw new InvalidOperationException("Browser request lost its effective prompt or fixture");
+                return Task.FromResult(new SendResult(browserState,"生成的浏览器提交回执"));
+            });Panel=panel;
+            async Task InvokeComposerAsync()
+            {
+                await Task.Delay(100);
+                var peer=new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(panel.ComposerSendButton);
+                var invoke=(Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider?)peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke);
+                if(invoke==null)throw new InvalidOperationException("Composer button has no native Invoke pattern");
+                int before=requests.Count;invoke.Invoke();
+                using var invokeTimeout=new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                while(requests.Count==before)await Task.Delay(20,invokeTimeout.Token);
+                await (panel.ComposerSendTask??throw new InvalidOperationException("Composer button did not invoke the Codex sender")).WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            await panel.PresentAsync(fixture,new PixelRect(0,0,320,200));
+            if(!panel.CanSendFromComposer)throw new InvalidOperationException("Composer send button did not enable after a capture");
+            await InvokeComposerAsync();
+            if(requests.Count!=1||requests[0].EffectivePrompt!=Settings.DefaultPrompt||panel.ResponseRenderedBlockCount<3||panel.CanSendFromComposer||panel.MessageCount!=2)
+                throw new InvalidOperationException("Composer lost default prompt, Markdown output or confirmed submission protection");
+            await panel.PresentAsync(fixture,new PixelRect(0,0,320,200));panel.PromptText="**生成的手动提示词**";await InvokeComposerAsync();
+            if(requests.Count!=2||requests[1].EffectivePrompt!=panel.PromptText)throw new InvalidOperationException("Manual prompt did not override the configured default");
+            string reply=panel.ResponseText;int messageCount=panel.MessageCount;
+            foreach(var state in new[]{SendState.Sent,SendState.Unknown})
+            {
+                browserState=state;await panel.PresentAsync(fixture,new PixelRect(0,0,320,200));int expectedCalls=browserCalls+1;
+                await panel.SendChatGptAsync();await panel.SendChatGptAsync();
+                if(browserCalls!=expectedCalls||panel.MessageCount!=messageCount||panel.ResponseText!=reply||panel.IsBusy||panel.IsProcessing||!Native.IsWindowVisible(panel.Handle))
+                    throw new InvalidOperationException("Browser sends created panel messages, discarded Codex output or allowed an acknowledged/unknown resend");
+            }
+            return "PASS: default prompt settings editor, native composer Invoke, manual override and Markdown reply rendering\nPASS: composer reuses Codex submission protection; browser sends preserve panel history without adding messages\n";
+        }
+        finally{settingsWindow?.Close();Panel?.Close();Settings.DefaultPrompt=previousDefault;Settings.Workspace=previousWorkspace;}
+    }
     internal void BeginCapture()
     {
         if(Toolbar?.IsSending==true||Panel?.IsBusy==true)return;
@@ -362,12 +576,16 @@ public partial class App : Application
     internal void ShowFloatingBall()
     {
         ballWanted=true;
-        Ball??=new FloatingBallWindow(OpenFloatingPanel,HideFloatingBall,ShowSettings);
+        Ball??=new FloatingBallWindow(ToggleFloatingPanel,HideFloatingBall,ShowSettings);
         Ball.Present();
     }
     private void ShowFloatingBallIfWanted(){if(ballWanted&&!capturing)Ball?.AppWindow.Show(false);}
     internal void HideFloatingBall(){ballWanted=false;Ball?.AppWindow.Hide();}
-    private void OpenFloatingPanel(){Panel??=new FloatingPanelWindow(this);Panel.Open();}
+    internal void ToggleFloatingPanel()
+    {
+        if(Panel?.IsExpanded==true){CollapseFloatingPanel();return;}
+        Panel??=new FloatingPanelWindow(this);Panel.Open();
+    }
     internal void CollapseFloatingPanel(){EndCaptureSession();ShowFloatingBallIfWanted();}
     internal void SetFloatingOperationVisible(bool visible)
     {
@@ -426,12 +644,13 @@ public partial class App : Application
         var panel=new StackPanel{Padding=new Thickness(24),Spacing=12};
         panel.Children.Add(new TextBlock{Text="AI ScreenShot",FontSize=24});
         var browser=new ComboBox{Header="ChatGPT 浏览器",ItemsSource=new[]{"Edge","Chrome"},SelectedItem=Settings.Browser,HorizontalAlignment=HorizontalAlignment.Stretch};panel.Children.Add(browser);
+        var defaultPrompt=new TextBox{Header="默认提示词",PlaceholderText="未输入提示词时发送给图片的提示词",AcceptsReturn=true,TextWrapping=TextWrapping.Wrap,MinHeight=80,MaxHeight=120,MaxLength=16000,Text=Settings.DefaultPrompt};panel.Children.Add(defaultPrompt);
         var codexDirectory=new TextBlock{Text=Settings.CodexDirectory??"尚未选择工作目录",TextWrapping=TextWrapping.Wrap};panel.Children.Add(codexDirectory);
         var chooseDirectory=new Button{Content="选择 Codex 工作目录…"};panel.Children.Add(chooseDirectory);
         var codexExecutable=new TextBox{Header="Codex CLI 可执行文件（留空自动查找）",Text=Settings.CodexExecutable??"",PlaceholderText="codex.exe 的完整路径"};panel.Children.Add(codexExecutable);
         var key=new TextBox{Header="截图快捷键字母或数字",Text=((char)Settings.HotkeyKey).ToString(),MaxLength=1};panel.Children.Add(key);
         var mods=new StackPanel{Orientation=Orientation.Horizontal,Spacing=12};var ctrl=new CheckBox{Content="Ctrl",IsChecked=(Settings.HotkeyModifiers&2)!=0};var alt=new CheckBox{Content="Alt",IsChecked=(Settings.HotkeyModifiers&1)!=0};var shift=new CheckBox{Content="Shift",IsChecked=(Settings.HotkeyModifiers&4)!=0};var win=new CheckBox{Content="Win",IsChecked=(Settings.HotkeyModifiers&8)!=0};foreach(var check in new[]{ctrl,alt,shift,win})mods.Children.Add(check);panel.Children.Add(mods);
-        var feedback=new TextBlock{Text=Bridge.Status,TextWrapping=TextWrapping.Wrap};panel.Children.Add(feedback);
+        var feedback=new TextBlock{Text=Bridge?.Status??"扩展未连接",TextWrapping=TextWrapping.Wrap};panel.Children.Add(feedback);
         chooseDirectory.Click+=async(_,_)=>
         {
             chooseDirectory.IsEnabled=false;
@@ -453,9 +672,9 @@ public partial class App : Application
             string executable=codexExecutable.Text.Trim();
             if(executable.Length>0){try{_=CodexProviderExecutable.Resolve(executable);}catch(Exception error){feedback.Text=error.Message;return;}}
             if(tray?.ChangeHotkey(modifiers,letter[0])!=true){tray?.ChangeHotkey(Settings.HotkeyModifiers,Settings.HotkeyKey);feedback.Text="快捷键已被占用，原快捷键已恢复";return;}
-            Settings.HotkeyModifiers=modifiers;Settings.HotkeyKey=letter[0];Settings.Browser=browser.SelectedItem?.ToString()??"Edge";Settings.CodexExecutable=executable.Length==0?null:executable;Settings.Save();feedback.Text="设置已保存 · "+Bridge.Status;
+            Settings.HotkeyModifiers=modifiers;Settings.HotkeyKey=letter[0];Settings.Browser=browser.SelectedItem?.ToString()??"Edge";Settings.CodexExecutable=executable.Length==0?null:executable;Settings.DefaultPrompt=defaultPrompt.Text;Settings.Save();defaultPrompt.Text=Settings.DefaultPrompt;feedback.Text="设置已保存 · "+(Bridge?.Status??"扩展未连接");
         };panel.Children.Add(apply);
-        var checkBridge=new Button{Content="检测扩展连接"};checkBridge.Click+=(_,_)=>feedback.Text=Bridge.Status;panel.Children.Add(checkBridge);
+        var checkBridge=new Button{Content="检测扩展连接"};checkBridge.Click+=(_,_)=>feedback.Text=Bridge?.Status??"扩展未连接";panel.Children.Add(checkBridge);
         var instructions=new TextBlock{Text="扩展安装：打开 edge://extensions 或 chrome://extensions，启用开发者模式并加载发布目录的 extension 文件夹。复制扩展 ID，按 README 运行注册脚本，扩展会自动连接；程序重启后自动重连。",TextWrapping=TextWrapping.Wrap};panel.Children.Add(instructions);
         var folder=new Button{Content="打开程序目录"};folder.Click+=(_,_)=>System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe",AppContext.BaseDirectory){UseShellExecute=true});panel.Children.Add(folder);
         window.Content=new ScrollViewer{Content=panel};window.AppWindow.Resize(new Windows.Graphics.SizeInt32(560,620));window.Closed+=(_,_)=>settingsWindow=null;window.Activate();
