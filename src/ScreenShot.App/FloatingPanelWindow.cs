@@ -46,15 +46,19 @@ internal sealed class FloatingPanelWindow : Window
     private readonly Grid toolGrid,messageHeader;
     private readonly PanelResizeController resizeController;
     private readonly PanelMoveController moveController;
-    private readonly AdjustableBackdrop baseBackdrop,toolbarBackdrop,messageBackdrop;
+    private readonly AdjustableBackdrop toolbarBackdrop,messageBackdrop;
+    private readonly TransparentPanelBackdrop transparentHost;
     private readonly UiTransition transition=new();
     private readonly UISettings visualSettings=new();
     private PanelAppearance appearance;
     private bool toolbarCompact;
     private bool hiddenForOperation;
-    private readonly Border outer;
-    private readonly Border baseStroke,toolbarStroke,messageStroke;
-    private readonly PanelWindowRegion windowRegion;
+    private readonly Grid outer;
+    private readonly Border toolbarStroke,messageStroke;
+    private readonly PanelGeometry geometry;
+    private readonly PanelInputTransparency inputTransparency;
+    private readonly PanelShadowWindow shadowWindow;
+    internal PanelShadowWindow ShadowWindow=>shadowWindow;
     private CancellationTokenSource? waitingCancellation;
     private MarkdownMessageView? latestResponse;
     private TextBlock? latestResponseHeading;
@@ -73,7 +77,9 @@ internal sealed class FloatingPanelWindow : Window
     public nint Handle {get;}
     internal Border ToolbarSurface {get;}
     internal Border MessageSurface {get;}
-    internal IReadOnlyList<AdjustableBackdrop> MaterialBackdrops=>[baseBackdrop,toolbarBackdrop,messageBackdrop];
+    internal IReadOnlyList<AdjustableBackdrop> MaterialBackdrops=>[toolbarBackdrop,messageBackdrop];
+    internal byte? HostAlpha=>transparentHost.Alpha;
+    internal IReadOnlyList<PanelGeometry.Shape> PaneShapes=>geometry.Shapes;
     internal bool IsExpanded=>expanded;
     internal bool IsProcessing=>progress.IsActive;
     internal bool CanSendToCodex=>codex.IsEnabled;
@@ -90,7 +96,7 @@ internal sealed class FloatingPanelWindow : Window
     internal bool IsToolbarCompact=>toolbarCompact;
     internal bool IsTransitioning=>transition.IsRunning;
     internal PanelAppearance Appearance=>appearance;
-    internal IReadOnlyList<Border> EdgeStrokes=>[baseStroke,toolbarStroke,messageStroke];
+    internal IReadOnlyList<Border> EdgeStrokes=>[toolbarStroke,messageStroke];
     internal bool VisibilityMenuOpen=>paneMenu.IsOpen;
     internal bool VisibilityMenuInToolbar=>ReferenceEquals(paneMenuButton.Parent,toolGrid);
     internal TextBlock MessageDragTitle=>(TextBlock)messageHeader.Children[0];
@@ -112,6 +118,10 @@ internal sealed class FloatingPanelWindow : Window
         this.app=app;appearance=app.Settings.PanelAppearance;this.sendCodex=sendCodex??app.Codex.SendWithReplyAsync;this.sendChatGpt=sendChatGpt??((request,token)=>app.Bridge.SendAsync(request,token));Title="AI ScreenShot · 消息";Handle=WinRT.Interop.WindowNative.GetWindowHandle(this);
         Native.SetWindowLongPtr(Handle,-20,(Native.GetWindowLongPtr(Handle,-20)|0x80)&~0x40000);
         var presenter=OverlappedPresenter.Create();presenter.SetBorderAndTitleBar(false,false);presenter.IsResizable=false;presenter.IsMaximizable=false;presenter.IsMinimizable=false;presenter.IsAlwaysOnTop=true;AppWindow.SetPresenter(presenter);
+        // No native frame surrounds the transparent host; pane grips provide resizing.
+        Native.SetWindowLongPtr(Handle,-16,Native.GetWindowLongPtr(Handle,-16)&~0x00c40000);
+        Native.SetWindowLongPtr(Handle,-20,(Native.GetWindowLongPtr(Handle,-20)|0x00200000)&~0x00020300);
+        if(!Native.SetWindowPos(Handle,0,0,0,0,0,0x01|0x02|0x04|0x10|0x20))throw new InvalidOperationException("无法移除悬浮宿主的非客户区外框");
         UiDesign.Apply(send,"SS.PrimaryButtonStyle");send.Content=ActionContent("发送","\uE724");
         UiDesign.Apply(paneMenuButton,"SS.IconButtonStyle");
         UiDesign.Apply(capture,"SS.QuietButtonStyle");capture.Content=ActionContent("截取屏幕","\uE722");
@@ -156,14 +166,12 @@ internal sealed class FloatingPanelWindow : Window
         MessageSurface=Surface("SS.MessageSurfaceStyle");MessageSurface.Child=messageGrid;
         var root=new Grid{Padding=UiDesign.Thickness("SS.Spacing.M"),RowSpacing=UiDesign.Number("SS.Spacing.M")};layout=root;root.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});root.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
         root.Children.Add(ToolbarSurface);Grid.SetRow(MessageSurface,1);root.Children.Add(MessageSurface);
-        outer=Surface("SS.WindowSurfaceStyle");outer.BorderThickness=new Thickness(1);outer.Child=root;Content=outer;
-        windowRegion=new(Handle,outer,ToolbarSurface,MessageSurface);outer.LayoutUpdated+=WindowLayoutUpdated;
+        outer=root;Content=root;transparentHost=new(Handle);SystemBackdrop=transparentHost;
+        geometry=new(Handle,root,ToolbarSurface,MessageSurface);inputTransparency=new(Handle,geometry);shadowWindow=new(Handle);outer.LayoutUpdated+=WindowLayoutUpdated;
         resizeController=new PanelResizeController(Handle,ResizePanel);resizeController.Attach(ToolbarSurface,PanelResizePane.Toolbar);resizeController.Attach(MessageSurface,PanelResizePane.Message);
-        resizeController.Attach(outer,PanelResizePane.Window,root.Padding.Top+outer.BorderThickness.Top);
-        baseBackdrop=new(appearance.Base);SystemBackdrop=baseBackdrop;
         toolbarBackdrop=AttachMaterial(ToolbarSurface,appearance.Toolbar);
         messageBackdrop=AttachMaterial(MessageSurface,appearance.Messages);
-        baseStroke=AttachStroke(outer);toolbarStroke=AttachStroke(ToolbarSurface);messageStroke=AttachStroke(MessageSurface);
+        toolbarStroke=AttachStroke(ToolbarSurface);messageStroke=AttachStroke(MessageSurface);
         ApplyAppearance(appearance);
         visualSettings.AnimationsEnabledChanged+=SystemAnimationsChanged;
         moveController=new PanelMoveController(Handle,MovePanel,()=>!closed&&expanded&&!resizeController.IsDragging&&!paneMenu.IsOpen);
@@ -177,7 +185,7 @@ internal sealed class FloatingPanelWindow : Window
         ConfigureWorkspace();ConfigureMore();UpdateButtons();
         app.Themes.Track(this);
         app.Themes.Changed+=UpdateStrokeBrush;outer.ActualThemeChanged+=StrokeThemeChanged;UpdateStrokeBrush();
-        Closed+=(_,_)=>{closed=true;app.Themes.Changed-=UpdateStrokeBrush;outer.ActualThemeChanged-=StrokeThemeChanged;outer.LayoutUpdated-=WindowLayoutUpdated;transition.Dispose();visualSettings.AnimationsEnabledChanged-=SystemAnimationsChanged;baseBackdrop.Dispose();toolbarBackdrop.Dispose();messageBackdrop.Dispose();moveController.Dispose();resizeController.Dispose();operationVersion++;imageVersion++;lifetime.Cancel();ClosePreview();lifetime.Dispose();app.Panel=null;app.EndCaptureSession(false);};
+        Closed+=(_,_)=>{closed=true;inputTransparency.Dispose();shadowWindow.Dispose();app.Themes.Changed-=UpdateStrokeBrush;outer.ActualThemeChanged-=StrokeThemeChanged;outer.LayoutUpdated-=WindowLayoutUpdated;transition.Dispose();visualSettings.AnimationsEnabledChanged-=SystemAnimationsChanged;toolbarBackdrop.Dispose();messageBackdrop.Dispose();moveController.Dispose();resizeController.Dispose();operationVersion++;imageVersion++;lifetime.Cancel();ClosePreview();lifetime.Dispose();app.Panel=null;app.EndCaptureSession(false);};
     }
 
     private static AdjustableBackdrop AttachMaterial(Border surface,SurfaceAppearance appearance)
@@ -185,30 +193,33 @@ internal sealed class FloatingPanelWindow : Window
         var tintSurface=new Border{CornerRadius=surface.CornerRadius,IsHitTestVisible=false};
         var backdrop=new AdjustableBackdrop(appearance,tintSurface);
         var material=new SystemBackdropElement{SystemBackdrop=backdrop,CornerRadius=surface.CornerRadius,IsHitTestVisible=false};
+        // Material, outline and shadow share the full pane bounds. A transparent
+        // layout border would inset the material and leave a clear seam outside it.
+        surface.BorderThickness=new Thickness(0);
         surface.Background=new SolidColorBrush(Microsoft.UI.Colors.Transparent);
         var wrapper=(Grid)surface.Child;wrapper.Children.Insert(0,material);wrapper.Children.Insert(1,tintSurface);
-        var clip=new RectangleGeometry();wrapper.Clip=clip;
-        wrapper.SizeChanged+=(_,args)=>clip.Rect=new Windows.Foundation.Rect(0,0,args.NewSize.Width,args.NewSize.Height);
         return backdrop;
     }
 
     internal void ApplyAppearance(PanelAppearance appearance)
     {
         if(closed)return;
-        this.appearance=appearance=appearance.Normalize();baseBackdrop.SetHidden(appearance.HideWindowBase);baseBackdrop.Update(appearance.Base);
+        this.appearance=appearance=appearance.Normalize();
         toolbarBackdrop.Update(appearance.Toolbar);messageBackdrop.Update(appearance.Messages);
+        foreach(var backdrop in MaterialBackdrops)backdrop.SetAccent(app.Themes.AccentColor,appearance.AccentMix);
         uint borderColor=0xfffffffeu;
         if(Native.DwmSetWindowAttribute(Handle,34,ref borderColor,sizeof(uint))<0)throw new InvalidOperationException("无法更新悬浮窗口外框");
+        uint cornerPolicy=1;
+        if(Native.DwmSetWindowAttribute(Handle,33,ref cornerPolicy,sizeof(uint))<0)throw new InvalidOperationException("无法关闭透明宿主的系统圆角");
         foreach(var stroke in EdgeStrokes)stroke.BorderThickness=new Thickness(appearance.ShowBorders?appearance.BorderThickness:0);
-        baseStroke.Visibility=appearance.HideWindowBase?Visibility.Collapsed:Visibility.Visible;
         if(!appearance.EnableAnimations&&transition.IsRunning)FinishVisualTransition();
-        UpdateWindowRegion();
+        UpdatePaneVisuals();
     }
 
-    private void WindowLayoutUpdated(object? sender,object args)=>UpdateWindowRegion();
+    private void WindowLayoutUpdated(object? sender,object args)=>UpdatePaneVisuals();
     private void StrokeThemeChanged(FrameworkElement sender,object args)=>UpdateStrokeBrush();
     private void UpdateStrokeBrush()
-    {if(!closed)foreach(var stroke in EdgeStrokes)stroke.BorderBrush=app.Themes.PanelBorderBrush(outer);}
+    {if(closed)return;foreach(var stroke in EdgeStrokes)stroke.BorderBrush=app.Themes.PanelBorderBrush(outer);foreach(var backdrop in MaterialBackdrops)backdrop.SetAccent(app.Themes.AccentColor,appearance.AccentMix);UpdatePaneVisuals();}
     private static Border AttachStroke(Border surface)
     {
         // Overlay strokes preserve content insets and animation geometry when their width changes.
@@ -217,12 +228,12 @@ internal sealed class FloatingPanelWindow : Window
         stroke.CornerRadius=surface.CornerRadius;
         ((Grid)surface.Child).Children.Add(stroke);return stroke;
     }
-    private void UpdateWindowRegion()
+    private void UpdatePaneVisuals()
     {
         if(closed)return;
-        double progress=expanded?1:Math.Clamp(((toolbarVisible?ToolbarSurface.Height:0)+(messageVisible?MessageSurface.Height:0))/
-            Math.Max(1,(toolbarVisible?toolbarHeight:0)+(messageVisible?messageHeight:0)),0,1);
-        windowRegion.Update(appearance.HideWindowBase,progress);
+        geometry.Update();
+        inputTransparency.Update();
+        shadowWindow.Update(geometry.Shapes,appearance,Math.Max(96u,Native.GetDpiForWindow(Handle))/96d,app.Themes.IsHighContrast(outer));
     }
 
     private void SystemAnimationsChanged(UISettings sender,object args)
@@ -330,7 +341,7 @@ internal sealed class FloatingPanelWindow : Window
     internal void HideForOperation()
     {
         if(closed)return;hiddenForOperation=true;FinishVisualTransition();
-        paneMenu.Hide();moveController.Cancel();resizeController.Cancel();ClosePreview();AppWindow.Hide();
+        paneMenu.Hide();moveController.Cancel();resizeController.Cancel();ClosePreview();shadowWindow.Hide();AppWindow.Hide();
     }
     internal void RestoreAfterOperation(){if(!closed&&expanded)Open();}
     internal void ToggleToolbar()
@@ -405,8 +416,8 @@ internal sealed class FloatingPanelWindow : Window
             if(!toolbarCompact&&button.Visibility==Visibility.Collapsed){button.Opacity=0;button.Visibility=Visibility.Visible;}
             button.IsHitTestVisible=!toolbarCompact;tracks.Add(OpacityTrack(button,toolbarCompact?0:1));
         }
-        outer.UpdateLayout();UpdateWindowRegion();
-        if(expanded&&!hiddenForOperation)AppWindow.Show(false);
+        outer.UpdateLayout();UpdatePaneVisuals();
+        if(expanded&&!hiddenForOperation){AppWindow.Show(false);UpdatePaneVisuals();}
         transition.Start(tracks,appearance.EnableAnimations&&visualSettings.AnimationsEnabled&&(shown||expanded)&&!hiddenForOperation,CommitVisualState);
     }
 
@@ -418,17 +429,17 @@ internal sealed class FloatingPanelWindow : Window
     private void CommitVisualState()
     {
         if(closed)return;
-        if(!expanded||hiddenForOperation)AppWindow.Hide();
+        if(!expanded||hiddenForOperation){shadowWindow.Hide();AppWindow.Hide();}
         ApplyPaneVisibility();ToolbarSurface.Opacity=MessageSurface.Opacity=1;
         ResizeAfterVisibilityChange();
-        outer.UpdateLayout();UpdateWindowRegion();
+        outer.UpdateLayout();UpdatePaneVisuals();
     }
 
     private void FinishVisualTransition(){transition.Stop();CommitVisualState();}
 
     private double WindowChromeWidth=>Native.GetWindowRect(Handle,out var bounds)&&Native.GetClientRect(Handle,out var client)?Math.Max(0,(bounds.Right-bounds.Left-client.Right+client.Left)/(Math.Max(96u,Native.GetDpiForWindow(Handle))/96d)):0;
-    private double ToolbarWidth=>toolbarCompact?Math.Min(Math.Max(1,logicalWidth-26-WindowChromeWidth),UiDesign.Number("SS.ToolbarButtonWidth")*2+UiDesign.Number("SS.ControlHeight")+UiDesign.Number("SS.Spacing.S")+UiDesign.Number("SS.Spacing.XS")+26):Math.Max(1,logicalWidth-26-WindowChromeWidth);
-    private double EffectiveLogicalWidth=>toolbarVisible&&toolbarCompact&&!messageVisible?ToolbarWidth+26+WindowChromeWidth:logicalWidth;
+    private double ToolbarWidth=>toolbarCompact?Math.Min(Math.Max(1,logicalWidth-HostInsets-WindowChromeWidth),UiDesign.Number("SS.ToolbarButtonWidth")*2+UiDesign.Number("SS.ControlHeight")+UiDesign.Number("SS.Spacing.S")+UiDesign.Number("SS.Spacing.XS")+HostInsets):Math.Max(1,logicalWidth-HostInsets-WindowChromeWidth);
+    private double EffectiveLogicalWidth=>toolbarVisible&&toolbarCompact&&!messageVisible?ToolbarWidth+HostInsets+WindowChromeWidth:logicalWidth;
 
     private void ResizeAfterVisibilityChange(bool keepCurrentSize=false)
     {
@@ -441,7 +452,8 @@ internal sealed class FloatingPanelWindow : Window
         int y=Math.Clamp(bounds.Top,work.Top,Math.Max(work.Top,work.Bottom-height));
         AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(x,y,width,height));
     }
-    private double LogicalHeight=>26+(messageVisible?messageHeight:0)+(toolbarVisible?toolbarHeight:0)+(toolbarVisible&&messageVisible?12:0);
+    private double HostInsets=>UiDesign.Number("SS.Spacing.M")*2;
+    private double LogicalHeight=>HostInsets+(messageVisible?messageHeight:0)+(toolbarVisible?toolbarHeight:0)+(toolbarVisible&&messageVisible?12:0);
     private static bool TryWorkArea(Native.Rect bounds,out Native.Rect work)
     {
         var info=new Native.MonitorInfo{Size=(uint)System.Runtime.InteropServices.Marshal.SizeOf<Native.MonitorInfo>()};
@@ -451,7 +463,7 @@ internal sealed class FloatingPanelWindow : Window
     private void FitToWorkArea(Native.Rect work,double scale)
     {
         logicalWidth=Math.Min(logicalWidth,(work.Right-work.Left)/scale);
-        double available=(work.Bottom-work.Top)/scale-26;
+        double available=(work.Bottom-work.Top)/scale-HostInsets;
         double gap=toolbarVisible&&messageVisible?12:0;
         if(toolbarVisible)toolbarHeight=Math.Min(toolbarHeight,Math.Max(1,available-gap-(messageVisible?Math.Min(320,available/2):0)));
         if(messageVisible)messageHeight=Math.Min(messageHeight,Math.Max(1,available-(toolbarVisible?toolbarHeight+gap:0)));
@@ -460,7 +472,7 @@ internal sealed class FloatingPanelWindow : Window
     {
         ToolbarSurface.Height=toolbarHeight;MessageSurface.Height=messageHeight;
         ToolbarSurface.Width=toolbarCompact?ToolbarWidth:double.NaN;ToolbarSurface.HorizontalAlignment=toolbarCompact?HorizontalAlignment.Left:HorizontalAlignment.Stretch;
-        double width=Math.Max(1,logicalWidth-26);
+        double width=Math.Max(1,logicalWidth-HostInsets);
         // The resize controller moves surface padding into a transparent content host.
         var toolbarPadding=toolGrid.Parent is Border contentHost?contentHost.Padding:ToolbarSurface.Padding;
         double toolbarInsets=toolbarPadding.Left+toolbarPadding.Right+ToolbarSurface.BorderThickness.Left+ToolbarSurface.BorderThickness.Right;
@@ -501,6 +513,7 @@ internal sealed class FloatingPanelWindow : Window
             }
         }
         if(gesture.Phase==PanelMovePhase.End)moveStart=null;
+        UpdatePaneVisuals();
     }
     private void ResizePanel(PanelResizeGesture gesture)
     {
@@ -517,7 +530,7 @@ internal sealed class FloatingPanelWindow : Window
         double scale=gesture.Scale;
         bool toolbar=PanelResizePolicy.ResolvePane(gesture.Pane,gesture.Edges,messageVisible)==PanelResizePane.Toolbar;
         double startHeight=toolbar?start.ToolbarHeight:start.MessageHeight;
-        double otherHeight=26+(toolbar?(messageVisible?start.MessageHeight+12:0):(toolbarVisible?start.ToolbarHeight+12:0));
+        double otherHeight=HostInsets+(toolbar?(messageVisible?start.MessageHeight+12:0):(toolbarVisible?start.ToolbarHeight+12:0));
         double maxWidth=(gesture.Edges.HasFlag(PanelResizeEdges.Left)?start.Bounds.Right-start.Work.Left:start.Work.Right-start.Bounds.Left)/scale;
         double maxHeight=(gesture.Edges.HasFlag(PanelResizeEdges.Top)?start.Bounds.Bottom-start.Work.Top:start.Work.Bottom-start.Bounds.Top)/scale-otherHeight;
         maxWidth=Math.Max(1,maxWidth);maxHeight=Math.Max(1,maxHeight);

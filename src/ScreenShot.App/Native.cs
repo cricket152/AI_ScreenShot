@@ -7,7 +7,15 @@ internal static class Native
     public delegate nint WindowProc(nint hwnd,uint message,nint wparam,nint lparam);
     [StructLayout(LayoutKind.Sequential,CharSet=CharSet.Unicode)] public struct WindowClass { public uint Size,Style; public WindowProc Proc; public int ClassExtra,WindowExtra; public nint Instance,Icon,Cursor,Background; public string? MenuName; public string ClassName; public nint SmallIcon; }
     [StructLayout(LayoutKind.Sequential)] public struct Point { public int X,Y; }
+    [StructLayout(LayoutKind.Sequential)] public struct Size { public int Width,Height; }
+    [StructLayout(LayoutKind.Sequential)] public struct Margins { public int Left,Right,Top,Bottom; }
+    [StructLayout(LayoutKind.Sequential)] public struct BlurBehind { public uint Flags; public int Enabled; public nint Region; public int Transition; }
+    [DllImport("dwmapi.dll")] public static extern int DwmExtendFrameIntoClientArea(nint window,ref Margins margins);
+    [DllImport("dwmapi.dll")] public static extern int DwmEnableBlurBehindWindow(nint window,ref BlurBehind blur);
+    [StructLayout(LayoutKind.Sequential,Pack=1)] public struct BlendFunction { public byte Operation,Flags,ConstantAlpha,AlphaFormat; }
+    [DllImport("user32.dll",SetLastError=true)] public static extern bool UpdateLayeredWindow(nint window,nint screen,ref Point destination,ref Size size,nint source,ref Point origin,uint colorKey,ref BlendFunction blend,uint flags);
     [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left,Top,Right,Bottom; }
+    [StructLayout(LayoutKind.Sequential)] public struct WindowStyles { public uint Old,New; }
     [StructLayout(LayoutKind.Sequential)] public struct BitmapInfo { public uint Size; public int Width,Height; public ushort Planes,BitCount; public uint Compression,SizeImage; public int XPels,YPels; public uint Used,Important; }
     [StructLayout(LayoutKind.Sequential)] public struct Paint { public nint Dc; public int Erase; public Rect Bounds; public int Restore,Update; [MarshalAs(UnmanagedType.ByValArray,SizeConst=32)] public byte[] Reserved; }
     [StructLayout(LayoutKind.Sequential,CharSet=CharSet.Unicode)] public struct NotifyIcon { public uint Size; public nint Window; public uint Id,Flags,Callback; public nint Icon; [MarshalAs(UnmanagedType.ByValTStr,SizeConst=128)] public string Tip; public uint State,StateMask; [MarshalAs(UnmanagedType.ByValTStr,SizeConst=256)] public string Info; public uint Version; [MarshalAs(UnmanagedType.ByValTStr,SizeConst=64)] public string Title; public uint InfoFlags; public Guid Guid; public nint BalloonIcon; }
@@ -36,6 +44,8 @@ internal static class Native
     [DllImport("gdi32.dll")] public static extern nint CreateCompatibleBitmap(nint dc,int width,int height);
     [DllImport("gdi32.dll",SetLastError=true)] public static extern nint CreateDIBSection(nint dc,ref BitmapInfo info,uint usage,out nint bits,nint section,uint offset);
     [DllImport("gdi32.dll")] public static extern uint GetPixel(nint dc,int x,int y);
+    [DllImport("gdi32.dll")] public static extern nint CreateSolidBrush(uint color);
+    [DllImport("user32.dll")] public static extern int FillRect(nint dc,ref Rect bounds,nint brush);
     [DllImport("gdi32.dll")] public static extern bool GdiFlush();
     [DllImport("gdi32.dll")] public static extern nint SelectObject(nint dc,nint obj);
     [DllImport("gdi32.dll")] public static extern bool BitBlt(nint dest,int x,int y,int width,int height,nint source,int sx,int sy,uint rop);
@@ -76,13 +86,14 @@ internal static class Native
     [DllImport("user32.dll")] public static extern bool GetWindowRect(nint window,out Rect rect);
     [DllImport("user32.dll")] public static extern bool GetClientRect(nint window,out Rect rect);
     [DllImport("user32.dll")] public static extern bool ClientToScreen(nint window,ref Point point);
-    [DllImport("user32.dll",SetLastError=true)] public static extern int SetWindowRgn(nint window,nint region,bool redraw);
     [DllImport("user32.dll")] public static extern int GetWindowRgn(nint window,nint region);
     [DllImport("gdi32.dll")] public static extern nint CreateRectRgn(int left,int top,int right,int bottom);
-    [DllImport("gdi32.dll")] public static extern nint CreateRoundRectRgn(int left,int top,int right,int bottom,int ellipseWidth,int ellipseHeight);
-    [DllImport("gdi32.dll")] public static extern int CombineRgn(nint destination,nint first,nint second,int mode);
-    [DllImport("gdi32.dll")] public static extern bool PtInRegion(nint region,int x,int y);
-    [DllImport("gdi32.dll")] public static extern int GetRgnBox(nint region,out Rect bounds);
+    public delegate nint SubclassProc(nint window,uint message,nint w,nint l,nuint id,nuint data);
+    public delegate bool EnumWindowProc(nint window,nint data);
+    [DllImport("comctl32.dll",SetLastError=true)] public static extern bool SetWindowSubclass(nint window,SubclassProc procedure,nuint id,nuint data);
+    [DllImport("comctl32.dll")] public static extern bool RemoveWindowSubclass(nint window,SubclassProc procedure,nuint id);
+    [DllImport("comctl32.dll")] public static extern nint DefSubclassProc(nint window,uint message,nint w,nint l);
+    [DllImport("user32.dll")] public static extern bool EnumChildWindows(nint parent,EnumWindowProc procedure,nint data);
     [DllImport("user32.dll",EntryPoint="GetWindowLongPtrW")] public static extern nint GetWindowLongPtr(nint window,int index);
     [DllImport("user32.dll",EntryPoint="SetWindowLongPtrW")] public static extern nint SetWindowLongPtr(nint window,int index,nint value);
     [DllImport("dwmapi.dll")] public static extern int DwmFlush();

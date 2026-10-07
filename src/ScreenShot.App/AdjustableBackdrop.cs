@@ -21,12 +21,15 @@ internal sealed partial class AdjustableBackdrop : SystemBackdrop,IDisposable
     private SurfaceAppearance appearance;
     private ICompositionSupportsSystemBackdrop? target;
     private XamlRoot? root;
+    private FrameworkElement? themeRoot;
     private Microsoft.UI.Dispatching.DispatcherQueue? dispatcher;
     private DesktopAcrylicController? acrylic;
     private Windows.UI.Composition.Compositor? tintCompositor;
     private Windows.UI.Composition.CompositionColorBrush? tint;
     private bool disposed;
-    private bool hidden;
+    private Windows.UI.Color accentColor;
+    private Windows.UI.Color effectiveTint;
+    private double accentMix;
 
     internal AdjustableBackdrop(SurfaceAppearance appearance,Border? tintSurface=null)
     {this.appearance=appearance.Normalize();this.tintSurface=tintSurface;elementTarget=tintSurface!=null;visualSettings.AdvancedEffectsEnabledChanged+=EffectsChanged;}
@@ -35,11 +38,9 @@ internal sealed partial class AdjustableBackdrop : SystemBackdrop,IDisposable
     internal SurfaceAppearance Appearance=>appearance;
     internal bool IsConnected=>target!=null;
     internal bool UsesAcrylic=>acrylic!=null;
-    internal bool IsHidden=>hidden;
-    internal byte? BackgroundAlpha=>tint?.Color.A;
     internal SystemBackdropTheme Theme=>configuration.Theme;
     internal SystemBackdropState? State=>acrylic?.State;
-    internal Windows.UI.Color TintColor=>acrylic?.TintColor??((SolidColorBrush)colorSource.Background).Color;
+    internal Windows.UI.Color TintColor=>acrylic?.TintColor??effectiveTint;
     internal bool TargetHasInputFocus=>target!=null&&root!=null&&GetDefaultSystemBackdropConfiguration(target,root).IsInputActive;
 
     internal void Update(SurfaceAppearance value)
@@ -48,13 +49,15 @@ internal sealed partial class AdjustableBackdrop : SystemBackdrop,IDisposable
         appearance=value.Normalize();Apply();
     }
 
-    internal void SetHidden(bool value)
-    {if(disposed||hidden==value)return;hidden=value;Apply();}
+    internal void SetAccent(Windows.UI.Color color,double mix)
+    {if(disposed||accentColor==color&&accentMix==mix)return;accentColor=color;accentMix=Math.Clamp(mix,0,1);Apply();}
 
     protected override void OnTargetConnected(ICompositionSupportsSystemBackdrop connectedTarget,XamlRoot xamlRoot)
     {
         base.OnTargetConnected(connectedTarget,xamlRoot);
-        target=connectedTarget;root=xamlRoot;dispatcher=(xamlRoot.Content as FrameworkElement)?.DispatcherQueue;Apply();
+        target=connectedTarget;root=xamlRoot;themeRoot=xamlRoot.Content as FrameworkElement;dispatcher=themeRoot?.DispatcherQueue;
+        if(themeRoot!=null)themeRoot.ActualThemeChanged+=ThemeChanged;
+        Apply();
     }
 
     protected override void OnDefaultSystemBackdropConfigurationChanged(ICompositionSupportsSystemBackdrop connectedTarget,XamlRoot xamlRoot)
@@ -68,8 +71,8 @@ internal sealed partial class AdjustableBackdrop : SystemBackdrop,IDisposable
     {
         if(disposed||target==null||root==null)return;
         var defaults=GetDefaultSystemBackdropConfiguration(target,root);
-        configuration.Theme=defaults.Theme==SystemBackdropTheme.Default?
-            (root.Content is FrameworkElement{ActualTheme:ElementTheme.Dark}?SystemBackdropTheme.Dark:SystemBackdropTheme.Light):defaults.Theme;
+        configuration.Theme=root.Content is FrameworkElement content?
+            (content.ActualTheme==ElementTheme.Dark?SystemBackdropTheme.Dark:SystemBackdropTheme.Light):defaults.Theme;
         configuration.IsHighContrast=defaults.IsHighContrast;
         configuration.HighContrastBackgroundColor=defaults.HighContrastBackgroundColor;
         // A separate configuration retains material on deactivation without activating the HWND.
@@ -77,7 +80,9 @@ internal sealed partial class AdjustableBackdrop : SystemBackdrop,IDisposable
         colorSource.RequestedTheme=configuration.Theme==SystemBackdropTheme.Dark?ElementTheme.Dark:ElementTheme.Light;
         var themeColor=((SolidColorBrush)colorSource.Background).Color;
         var color=configuration.IsHighContrast?configuration.HighContrastBackgroundColor??themeColor:themeColor;
-        if(hidden){ReleaseAcrylic();ApplyTint(color,0);return;}
+        if(!configuration.IsHighContrast)color=Windows.UI.Color.FromArgb(255,
+            (byte)Math.Round(color.R+(accentColor.R-color.R)*accentMix),(byte)Math.Round(color.G+(accentColor.G-color.G)*accentMix),(byte)Math.Round(color.B+(accentColor.B-color.B)*accentMix));
+        effectiveTint=color;
         if(appearance.Material!=SurfaceMaterial.Transparent&&DesktopAcrylicController.IsSupported())
         {
             if(acrylic==null)
@@ -101,6 +106,7 @@ internal sealed partial class AdjustableBackdrop : SystemBackdrop,IDisposable
 
     private void EffectsChanged(UISettings sender,object args)
     {dispatcher?.TryEnqueue(Apply);}
+    private void ThemeChanged(FrameworkElement sender,object args)=>Apply();
 
     private void ApplyTint(Windows.UI.Color color,double opacity)
     {
@@ -123,12 +129,13 @@ internal sealed partial class AdjustableBackdrop : SystemBackdrop,IDisposable
 
     protected override void OnTargetDisconnected(ICompositionSupportsSystemBackdrop disconnectedTarget)
     {
-        ReleaseAcrylic();ReleaseTint();target=null;root=null;dispatcher=null;
+        if(themeRoot!=null)themeRoot.ActualThemeChanged-=ThemeChanged;
+        themeRoot=null;ReleaseAcrylic();ReleaseTint();target=null;root=null;dispatcher=null;
         base.OnTargetDisconnected(disconnectedTarget);
         // Element backdrop links are thread-affine; release them on the owning UI thread.
         if(elementTarget)disconnectedTarget.As<IDisposable>().Dispose();
     }
 
     public void Dispose()
-    {if(disposed)return;disposed=true;visualSettings.AdvancedEffectsEnabledChanged-=EffectsChanged;ReleaseAcrylic();ReleaseTint();}
+    {if(disposed)return;disposed=true;visualSettings.AdvancedEffectsEnabledChanged-=EffectsChanged;if(themeRoot!=null)themeRoot.ActualThemeChanged-=ThemeChanged;ReleaseAcrylic();ReleaseTint();}
 }

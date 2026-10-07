@@ -25,10 +25,13 @@ internal sealed class SettingsWindow : Window
     private readonly Dictionary<string,(string Title,string Description,StackPanel Content)> pages=[];
     private readonly Dictionary<string,SurfaceEditor> surfaceEditors=[];
     private Button? saveButton;
-    private readonly CheckBox hideWindowBase=new(){Content="隐藏"};
     private readonly ToggleSwitch enableAnimations=new(){OnContent="开启",OffContent="关闭"};
     private readonly ToggleSwitch showBorders=new(){OnContent="开启",OffContent="关闭"};
     private readonly Slider borderThickness=new(){Minimum=0.5,Maximum=3,StepFrequency=0.5,SmallChange=0.5};
+    private readonly ToggleSwitch showShadow=new(){OnContent="开启",OffContent="关闭"};
+    private readonly Slider shadowSpread=new(){Minimum=0,Maximum=32,StepFrequency=2};
+    private readonly Slider shadowOpacity=new(){Minimum=0,Maximum=50,StepFrequency=1};
+    private readonly Slider accentMix=new(){Minimum=0,Maximum=100,StepFrequency=1};
     private readonly TextBlock borderThicknessLabel=new(){VerticalAlignment=VerticalAlignment.Center,MinWidth=48,TextAlignment=TextAlignment.Right};
     private readonly ComboBox appTheme=new(){ItemsSource=new[]{"明","暗","系统"}};
     private readonly ComboBox accentMode=new(){ItemsSource=new[]{"跟随 Windows","自定义颜色"}};
@@ -46,14 +49,20 @@ internal sealed class SettingsWindow : Window
     internal Button AccentPickerButton=>accentButton;
     internal ToggleSwitch BorderToggle=>showBorders;
     internal Slider BorderWidthSlider=>borderThickness;
+    internal ToggleSwitch ShadowToggle=>showShadow;
+    internal Slider ShadowSpreadSlider=>shadowSpread;
+    internal Slider ShadowOpacitySlider=>shadowOpacity;
+    internal Slider AccentMixSlider=>accentMix;
 
     internal SettingsWindow(App app,Func<uint,uint,bool> changeHotkey)
     {
         this.app=app;this.changeHotkey=changeHotkey;Title="AI ScreenShot 设置";
         SystemBackdrop=new MicaBackdrop();
         var settings=app.Settings;
-        hideWindowBase.IsChecked=settings.PanelAppearance.HideWindowBase;enableAnimations.IsOn=settings.PanelAppearance.EnableAnimations;
+        enableAnimations.IsOn=settings.PanelAppearance.EnableAnimations;
         showBorders.IsOn=settings.PanelAppearance.ShowBorders;borderThickness.Value=settings.PanelAppearance.BorderThickness;
+        showShadow.IsOn=settings.PanelAppearance.ShowShadow;shadowSpread.Value=settings.PanelAppearance.ShadowSpread;
+        shadowOpacity.Value=settings.PanelAppearance.ShadowOpacity*100;accentMix.Value=settings.PanelAppearance.AccentMix*100;
         appTheme.SelectedIndex=Array.IndexOf(ThemeChoices,settings.PanelAppearance.Theme);
         accentMode.SelectedIndex=(int)settings.PanelAppearance.AccentMode;accentPicker.Color=AppThemeController.ParseColor(settings.PanelAppearance.CustomAccentColor);
         browser=new(){ItemsSource=new[]{"Edge","Chrome"},SelectedItem=settings.Browser,MinHeight=UiDesign.Number("SS.ControlHeight"),CornerRadius=UiDesign.Corner("SS.Corner.Control")};
@@ -93,7 +102,7 @@ internal sealed class SettingsWindow : Window
         {checks[index].MinWidth=0;Grid.SetColumn(checks[index],index%2);Grid.SetRow(checks[index],index/2);modifiers.Children.Add(checks[index]);}
         general.Children.Add(SettingRow("修饰键","至少选择一个；保存时检查快捷键是否被占用。",modifiers));
 
-        var appearance=Page("appearance","外观与材质","分别调节悬浮面板的底板、工具条和消息背景。","\uE790");
+        var appearance=Page("appearance","外观与材质","调节工具栏和消息面板的材质、色彩与阴影。","\uE790");
         foreach(var selector in new[]{appTheme,accentMode}){selector.MinHeight=UiDesign.Number("SS.ControlHeight");selector.CornerRadius=UiDesign.Corner("SS.Corner.Control");}
         appearance.Children.Add(SettingRow("应用主题","统一设置窗口、悬浮入口和消息面板；系统模式自动跟随 Windows。",appTheme));
         UiDesign.Apply(accentButton,"SS.QuietButtonStyle");UiDesign.Apply(accentHex,"SS.CaptionTextStyle");
@@ -103,24 +112,26 @@ internal sealed class SettingsWindow : Window
         accentButton.Flyout=new Flyout{Content=accentPicker,Placement=Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedRight};
         var colorEditor=new StackPanel{Spacing=UiDesign.Number("SS.Spacing.S")};colorEditor.Children.Add(accentMode);colorEditor.Children.Add(accentButton);
         appearance.Children.Add(SettingRow("主题颜色","用于按钮、选中状态和链接；自定义颜色可用色谱或 RGB / HEX 输入。",colorEditor));
-        appearance.Children.Add(SettingRow("面板边框","底板、工具栏和消息栏的边框跟随主题颜色；隐藏底板时仅显示两栏边框。",showBorders));
+        appearance.Children.Add(SettingRow("面板边框","工具栏和消息面板的边框跟随主题颜色。",showBorders));
         UiDesign.Apply(borderThicknessLabel,"SS.CaptionTextStyle");UiDesign.Label(borderThickness,"面板边框粗细，逻辑像素");
         var borderEditor=new Grid{ColumnSpacing=UiDesign.Number("SS.Spacing.S")};borderEditor.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});borderEditor.ColumnDefinitions.Add(new(){Width=GridLength.Auto});
         borderEditor.Children.Add(borderThickness);Grid.SetColumn(borderThicknessLabel,1);borderEditor.Children.Add(borderThicknessLabel);
         appearance.Children.Add(SettingRow("边框粗细","0.5–3 逻辑像素，随显示器 DPI 缩放；关闭边框后保留所选粗细。",borderEditor));
+        appearance.Children.Add(SettingRow("面板阴影","柔和的外围阴影帮助区分后方窗口；不影响透明区域的鼠标操作。",showShadow));
+        appearance.Children.Add(SettingRow("阴影扩散","数值越大，阴影越宽、更柔和；设为 0 时不显示。",SliderEditor(shadowSpread,"px","阴影扩散，逻辑像素")));
+        appearance.Children.Add(SettingRow("阴影不透明度","建议使用较低数值，让透明面板保持轻盈。",SliderEditor(shadowOpacity,"%","阴影不透明度")));
+        appearance.Children.Add(SettingRow("材质主题色混入","统一混入工具栏和消息背景；0% 保持中性色，100% 使用主题色。正文和按钮不随之变淡。",SliderEditor(accentMix,"%","材质主题色混入比例")));
         appearance.Children.Add(Body("显示窗口后方当前可见的桌面画面。失去焦点时仍保持材质效果；文字、截图和按钮保持清晰。"));
-        appearance.Children.Add(SettingRow("隐藏窗口底板","去掉公共背景和窗口外框，只保留工具栏、消息栏各自的材质与边框。",hideWindowBase));
         appearance.Children.Add(SettingRow("界面过渡动画","用于工具栏缩小/扩展、两栏显隐和悬浮球展开；同时遵循 Windows 动画开关。",enableAnimations));
-        AddSurfaceEditor(appearance,"base","窗口底板","覆盖悬浮面板的外缘与两栏之间的留白。",app.Settings.PanelAppearance.Base);
         AddSurfaceEditor(appearance,"toolbar","工具条","轻透的胶囊表面，操作按钮保留原生反馈。",app.Settings.PanelAppearance.Toolbar);
         AddSurfaceEditor(appearance,"messages","消息面板","建议保留较高底色，减少后方内容对阅读的干扰。",app.Settings.PanelAppearance.Messages);
         void PreviewAppearance()
-        {surfaceEditors["base"].SetEnabled(hideWindowBase.IsChecked!=true);borderThickness.IsEnabled=showBorders.IsOn;borderThicknessLabel.Text=$"{borderThickness.Value:0.#} px";UpdateAccentPreview();app.ApplyAppearance(ReadAppearance());}
+        {borderThickness.IsEnabled=showBorders.IsOn;borderThicknessLabel.Text=$"{borderThickness.Value:0.#} px";shadowSpread.IsEnabled=shadowOpacity.IsEnabled=showShadow.IsOn;UpdateAccentPreview();app.ApplyAppearance(ReadAppearance());}
         appTheme.SelectionChanged+=(_,_)=>PreviewAppearance();accentMode.SelectionChanged+=(_,_)=>PreviewAppearance();
         accentPicker.ColorChanged+=(_,_)=>PreviewAppearance();
-        hideWindowBase.Checked+=(_,_)=>PreviewAppearance();hideWindowBase.Unchecked+=(_,_)=>PreviewAppearance();
         enableAnimations.Toggled+=(_,_)=>PreviewAppearance();PreviewAppearance();
         showBorders.Toggled+=(_,_)=>PreviewAppearance();borderThickness.ValueChanged+=(_,_)=>PreviewAppearance();
+        showShadow.Toggled+=(_,_)=>PreviewAppearance();foreach(var slider in new[]{shadowSpread,shadowOpacity,accentMix})slider.ValueChanged+=(_,_)=>PreviewAppearance();
         var actions=new StackPanel{Orientation=Orientation.Horizontal,Spacing=UiDesign.Number("SS.Spacing.S")};
         var preview=ActionButton("预览面板","\uE7B3");
         preview.Click+=(_,_)=>
@@ -131,15 +142,16 @@ internal sealed class SettingsWindow : Window
         var reset=ActionButton("恢复默认","\uE777");
         reset.Click+=(_,_)=>
         {
-            var defaults=new PanelAppearance();surfaceEditors["base"].Set(defaults.Base);
+            var defaults=new PanelAppearance();
             surfaceEditors["toolbar"].Set(defaults.Toolbar);surfaceEditors["messages"].Set(defaults.Messages);
-            hideWindowBase.IsChecked=defaults.HideWindowBase;enableAnimations.IsOn=defaults.EnableAnimations;
+            enableAnimations.IsOn=defaults.EnableAnimations;
             showBorders.IsOn=defaults.ShowBorders;borderThickness.Value=defaults.BorderThickness;
+            showShadow.IsOn=defaults.ShowShadow;shadowSpread.Value=defaults.ShadowSpread;shadowOpacity.Value=defaults.ShadowOpacity*100;accentMix.Value=defaults.AccentMix*100;
             appTheme.SelectedIndex=Array.IndexOf(ThemeChoices,defaults.Theme);accentMode.SelectedIndex=(int)defaults.AccentMode;accentPicker.Color=AppThemeController.ParseColor(defaults.CustomAccentColor);
             app.ApplyAppearance(ReadAppearance());SetFeedback("已恢复默认预览，点击保存外观后保留。");
         };
         actions.Children.Add(preview);actions.Children.Add(reset);appearance.Children.Add(actions);
-        appearance.Children.Add(Caption("滑块表示背景底色的不透明度：0% 更通透，100% 为纯色。Acrylic 保留模糊；透明色层不额外模糊，会叠加在底板上。Windows 关闭透明效果或启用高对比度时使用可读的纯色背景。"));
+        appearance.Children.Add(Caption("滑块表示背景底色的不透明度：0% 更通透，100% 为纯色。Acrylic 保留模糊；透明色层直接叠加在后方窗口画面上。Windows 关闭透明效果或启用高对比度时使用可读的纯色背景。"));
 
         var codex=Page("codex","Codex","选择工作目录和 CLI，检测 provider 连接。","\uE756");
         var chooseDirectory=ActionButton("选择目录…","\uE8B7");
@@ -283,9 +295,18 @@ internal sealed class SettingsWindow : Window
     }
 
     private PanelAppearance ReadAppearance()=>new()
-    {Base=surfaceEditors["base"].Value,Toolbar=surfaceEditors["toolbar"].Value,Messages=surfaceEditors["messages"].Value,
-        HideWindowBase=hideWindowBase.IsChecked==true,EnableAnimations=enableAnimations.IsOn,
-        Theme=ThemeChoices[Math.Clamp(appTheme.SelectedIndex,0,ThemeChoices.Length-1)],AccentMode=(AccentColorMode)Math.Max(0,accentMode.SelectedIndex),CustomAccentColor=AppThemeController.ToHex(accentPicker.Color),ShowBorders=showBorders.IsOn,BorderThickness=borderThickness.Value};
+    {Toolbar=surfaceEditors["toolbar"].Value,Messages=surfaceEditors["messages"].Value,
+        EnableAnimations=enableAnimations.IsOn,
+        Theme=ThemeChoices[Math.Clamp(appTheme.SelectedIndex,0,ThemeChoices.Length-1)],AccentMode=(AccentColorMode)Math.Max(0,accentMode.SelectedIndex),CustomAccentColor=AppThemeController.ToHex(accentPicker.Color),ShowBorders=showBorders.IsOn,BorderThickness=borderThickness.Value,
+        ShowShadow=showShadow.IsOn,ShadowSpread=shadowSpread.Value,ShadowOpacity=shadowOpacity.Value/100,AccentMix=accentMix.Value/100};
+
+    private static Grid SliderEditor(Slider slider,string unit,string label)
+    {
+        UiDesign.Label(slider,label);var value=new TextBlock{MinWidth=48,TextAlignment=TextAlignment.Right,VerticalAlignment=VerticalAlignment.Center,Text=$"{slider.Value:0}{unit}"};UiDesign.Apply(value,"SS.CaptionTextStyle");
+        slider.ValueChanged+=(_,_)=>value.Text=$"{slider.Value:0}{unit}";
+        var editor=new Grid{ColumnSpacing=UiDesign.Number("SS.Spacing.S")};editor.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});editor.ColumnDefinitions.Add(new(){Width=GridLength.Auto});
+        editor.Children.Add(slider);Grid.SetColumn(value,1);editor.Children.Add(value);return editor;
+    }
 
     private void UpdateAccentPreview()
     {
@@ -316,7 +337,6 @@ internal sealed class SettingsWindow : Window
         private bool changing;
         internal StackPanel Content {get;}=new(){Spacing=UiDesign.Number("SS.Spacing.XS")};
         internal SurfaceAppearance Value=>new((SurfaceMaterial)material.SelectedIndex,opacity.Value/100d);
-        internal void SetEnabled(bool enabled){material.IsEnabled=enabled;opacity.IsEnabled=enabled;percentage.Opacity=enabled?1:0.5;}
 
         internal SurfaceEditor(string title,SurfaceAppearance value,Action changed)
         {

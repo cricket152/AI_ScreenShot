@@ -304,15 +304,15 @@ public partial class App : Application
             if(panel.VisibilityMenuOpen)throw new InvalidOperationException("Selecting a visibility action did not dismiss the menu");
             SingleMenuButton(root);
         }
-        foreach(var pane in new[]{PanelResizePane.Toolbar,PanelResizePane.Window})
+        foreach(var pane in new[]{PanelResizePane.Toolbar})
         {
             Native.GetWindowRect(panel.Handle,out var before);double toolbarHeight=panel.ToolbarSurface.ActualHeight;
-            double x=root.ActualWidth/2,y=pane==PanelResizePane.Window?3:panel.ToolbarSurface.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point()).Y+3;
+            double x=root.ActualWidth/2,y=panel.ToolbarSurface.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point()).Y+3;
             if(!panel.ResizeAtForDiagnostic(new Windows.Foundation.Point(x,y),0,32,pane,PanelResizeEdges.Top))throw new InvalidOperationException("The displayed top resize band did not receive its visual hit");
             await Task.Delay(100);Native.GetWindowRect(panel.Handle,out var smaller);
             if(smaller.Top<=before.Top||smaller.Bottom!=before.Bottom||smaller.Bottom-smaller.Top>=before.Bottom-before.Top||Math.Abs(panel.ToolbarSurface.ActualHeight-toolbarHeight)>1)
                 throw new InvalidOperationException("Top dragging did not shrink the whole panel while keeping its bottom and toolbar height");
-            y=pane==PanelResizePane.Window?3:panel.ToolbarSurface.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point()).Y+3;
+            y=panel.ToolbarSurface.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point()).Y+3;
             if(!panel.ResizeAtForDiagnostic(new Windows.Foundation.Point(x,y),0,-32,pane,PanelResizeEdges.Top))throw new InvalidOperationException("The resized top band no longer received hits");
             await Task.Delay(100);Native.GetWindowRect(panel.Handle,out var restored);
             if(Math.Abs(restored.Top-before.Top)>1||Math.Abs(restored.Bottom-before.Bottom)>1||Math.Abs(panel.ToolbarSurface.ActualHeight-toolbarHeight)>1)
@@ -326,7 +326,7 @@ public partial class App : Application
         if(panel.IsMessageVisible||panel.MessageSurface.Visibility!=Visibility.Collapsed||!panel.IsToolbarVisible||!panel.IsExpanded||!Native.IsWindowVisible(panel.Handle)||!panel.VisibilityMenuInToolbar||collapsed.Bottom-collapsed.Top>=previousMessageHeight)
             throw new InvalidOperationException("The message collapse button did not leave a visible toolbar and restore control");
         await File.WriteAllBytesAsync(Path.Combine(output,"floating-message-collapsed.png"),await RuntimeDiagnostics.RenderAsync(root));
-        panel.ResizeForDiagnostic(PanelResizePane.Window,PanelResizeEdges.Right,24,0);await Task.Delay(100);
+        panel.ResizeForDiagnostic(PanelResizePane.Toolbar,PanelResizeEdges.Right,24,0);await Task.Delay(100);
         await SelectMenuItemAsync(false,"隐藏工具栏","显示消息栏");
         if(!panel.IsMessageVisible||!panel.IsToolbarVisible||panel.MessageCount!=count||panel.ResponseText!=reply||panel.PromptText!=prompt||Math.Abs(panel.MessageSurface.ActualHeight-previousMessageHeight)>1||Math.Abs(panel.MessageSurface.ActualWidth-panel.ToolbarSurface.ActualWidth)>1)
             throw new InvalidOperationException("Restoring messages lost content, height or shared width after toolbar-only resizing");

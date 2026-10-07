@@ -1,6 +1,16 @@
 # 项目状态
 
 ## 已完成
+- 2026-10-07 用户明确要求归档本轮修改：提交范围为双面板透明宿主、公共底板/裁切移除、外围白框和阴影间隙修复、可调阴影/材质混色、相关回归及文档；构建产物、便携包和临时诊断不纳入 Git，未 push。验证结果与桌面验收限制保留在下述记录中。
+- 2026-10-07 修复两栏外围方形白框和阴影间隙：受控色板确认旧版最左窗口边缘为白色 255/255/255，样式重新出现 WS_DLGFRAME / WS_EX_WINDOWEDGE。PanelInputTransparency 在 WM_STYLECHANGING 持续过滤 frame / edge，WM_NCCALCSIZE 保持整个 HWND 为客户区，首次安装重新计算框架；不禁用 DWM alpha，不使用裁切。FloatingPanelWindow 移除面板承载 Border 的 1px 透明布局边，材质、色层、向内绘制的主题描边和外围阴影共享同一圆角外缘；边框关闭/开启时均无该空隙，保留布局 token、拖动/缩放/动画与业务逻辑。
+- 最终 scripts/verify.ps1 exit 0：App / Native Host 0 warning / 0 error，719 核心断言、15 扩展测试、3 JS 语法检查通过。实际构建和 dist/AIScreenShot-win-x64-pane-edges 的 --floating-ui-test 均 exit 0：208 个双色 DWM 采样覆盖 HWND 四条外沿/留白/角外/间隙并尝试重新恢复原生 frame；浅色/深色、边框关闭/0.5/1/3px 的 16 组直边与 64 组圆角检查通过。包经 scripts/publish.ps1 生成，App/Core DLL 与 App.xbf SHA-256 匹配验证构建；git diff --check 通过。诊断只采样自有 Win32 色板覆盖范围，不保存桌面图像、不访问系统剪贴板或真实发送；旧包与既有修改保留，无本轮 commit/push。
+- 2026-10-06 当前悬浮界面改为只有工具栏与消息面板：移除公共底板材质/描边/缩放入口，以及 Base、HideWindowBase 字段和对应设置；两栏用原生 SystemBackdropElement / Border 直接绘制圆角矩形。PanelWindowRegion 和额外 RectangleGeometry 裁切已移除，窗口没有 native region。TransparentPanelBackdrop 只提供透明宿主；关闭原生 frame / DWM 描边及系统圆角，DwmEnableBlurBehindWindow 使用 Region=null 启用 alpha（不绘制公共模糊），WM_ERASEBKGND 清空 alpha，保留两栏独立模糊。旧版隐藏底板/裁切方案已被本轮实现取代。
+- 两栏保留主题、独立材质/不透明度、主题色混入、边框及阴影；PanelGeometry 只测量阴影和命中，PanelInputTransparency 不改变绘制区域，空白/间隙/角外返回 HTTRANSPARENT。保留面板自身缩放/移动、单菜单、工具条向右扩展、两栏显隐与 NoActivate，取消公共底板边缘缩放。材质直接监听根 ActualThemeChanged，修复透明宿主下不再由旧底板控制器同步主题的问题。旧 JSON 忽略废弃字段，保存不再输出，其余外观与业务参数兼容；无生产依赖或业务逻辑变化。
+- 本轮 scripts/verify.ps1 exit 0：App / Native Host 0 warning / 0 error，719 核心断言、15 扩展测试及 3 JS 语法检查通过；实际构建 --floating-ui-test exit 0，新增无底板/无 native region/无额外面板 Clip、两组材质编辑器、旧配置迁移回归，保留动画/移动/缩放/阴影/混色/主题/边框/图标/流式/防重发。自建无激活 Win32 双色色板覆盖范围内八个 DWM 像素采样验证外围/间隙/角外透明且焦点不变，销毁全部测试资源；不保存桌面图像、不读系统剪贴板、不连接浏览器或真实发送。2026-10-07 完成便携包收尾：dist/AIScreenShot-win-x64-two-pane 经 scripts/publish.ps1 生成，实际 EXE --floating-ui-test exit 0；App/Core DLL 和 App.xbf SHA-256 与验证构建一致，git diff --check 通过。旧包和既有修改保留，无本轮 commit/push。
+- 2026-10-06 修正隐藏底板的白边相关空隙：材质实际绘制在 1px 内容边界内，原 HWND region 按外缘计算且 right/bottom 多加 1px，暴露未绘制区域；现在隐藏区域匹配材质内缘与实际圆角，排除这圈空隙，不改变内容/描边/缩放布局。实际 region 检查通过，真实 DWM 后方合成和用户白边观感仍待新版验收。
+- 新增独立外围阴影：原生 layered、transparent、no-activate 工具 HWND 紧邻面板之后，只绘制圆角外围 alpha，内部及两栏重叠区域清空，不染黑透明正文；阴影穿透点击、移动/显隐/过渡同步、截图前立即隐藏，关闭释放 HWND 与 GDI。外观设置新增阴影开关、0–32px 扩散、0–50% 不透明度，默认 12px/16%；高对比度禁用。不采用 DeskBox 的 Windows 全局阴影开关，不改变系统设置。只计算边缘带并缓存上传结果；约 1.9MB 位图的单次诊断重绘，构建运行记录 2.42ms、发布包运行记录 24.80ms，时序存在波动，不将其称为稳定性能或桌面帧率。
+- 新增统一材质主题色混入 0–100%，默认 18%；三块面板的 Acrylic tint / fallback 与透明色层使用中性主题色和原始强调色插值，系统色/自定义色实时同步，高对比度保持系统色，原材质不透明度与文字/截图整体不透明度不变。参考 DeskBox 的材质计算器/控制器设计独立实现，无复制源码、新依赖或业务逻辑变更；沿用预览/保存/默认/关闭撤销。
+- 本轮边缘/阴影/混色区域分别编译通过，scripts/verify.ps1 的 App / Native Host 0 warning / 0 error，719 项核心断言、15 项扩展测试和 3 项 JS 语法检查通过；实际构建 --floating-ui-test exit 0。新增 native 区域空隙、阴影像素/穿透/前台/开关/数值保留/移动/操作立即隐藏与恢复、三种材质双主题 0/35/100% 真实控制器 tint 及 fallback 检查，既有边框/图标/区域/运动/菜单/移动/缩放/流式/防重发回归通过。dist/AIScreenShot-win-x64-shadow-tint 经 scripts/publish.ps1 生成，实际 EXE --floating-ui-test exit 0，App/Core DLL 与 App.xbf SHA-256 与验证构建一致，git diff --check 通过。没有桌面采样、系统剪贴板访问、浏览器连接或真实发送；保留旧包，无本轮 commit/push。
 - 2026-10-06 完成主题色边框及已确认图标接入：窗口底板、工具栏和消息栏边框使用窗口作用域的原始强调色，系统色/自定义色和三种主题实时同步；外观页新增原生 ToggleSwitch 与 0.5–3px Slider，默认开启/1px，关闭保留宽度，支持预览/保存/默认/关闭撤销。描边为不接收输入的原生叠加 Border，关闭 DWM 重复灰色外框，内容留白/窗口几何/缩放/过渡保持稳定；隐藏底板时同时隐藏公共描边。高对比度通过 Windows App SDK ThemeSettings 监听并使用系统资源。
 - 用户已确认此前 imagegen 图标：从原始透明 PNG 转换为十尺寸 ICO（16–256px）及 256px PNG，ApplicationIcon 嵌入 EXE，所有已注册窗口通过 AppWindow.SetIcon 使用同一 ICO，托盘加载独立 HICON 并在退出释放，悬浮入口采用同设计 PNG。转换脚本及原图/提示词保留，无重新绘画、第三方依赖或业务逻辑变更。
 - 本轮验证：边框和图标分别 Release 编译 0 warning / 0 error，核心回归新增四项兼容/持久化/有限宽度断言，共 712 项；扩展 15 项及 JS 语法 3 项通过。实际构建 --floating-ui-test exit 0：自定义粉色及当前 Windows 色同步三处边框、三种主题、0.5/1/3px、关闭/恢复/保留宽度、窗口/内容几何不变及不拦截输入、EXE 图标提取、窗口 HICON、托盘资源加载和悬浮图像检查通过，既有材质/底板区域/运动/菜单/移动/缩放/流式/防重发回归保留。修复原生检查发现的动态 ThemeResource 未取得作用域颜色问题；高对比度改用桌面 ThemeSettings。最终 scripts/verify.ps1 exit 0，App / Native Host 0 warning / 0 error，712 核心 + 15 扩展 + 3 语法检查通过；dist/AIScreenShot-win-x64-accent-borders-icon 经 scripts/publish.ps1 生成，实际 EXE --floating-ui-test exit 0。App/Core DLL、App.xbf、ICO/PNG SHA-256 与验证构建一致；提取的 EXE 32px 图标与已确认 ICO 像素完全一致。没有桌面截图、系统剪贴板访问、浏览器连接或真实发送，旧包/既有修改保留，无 commit/push。
@@ -67,6 +77,8 @@
 - Chrome 重新加载原扩展后的自动连接、浏览器先启动/程序后启动、程序重启、worker 休眠恢复，以及官网图片上传/发送。Node 模拟测试和 Host 握手不能替代真实浏览器验收。
 
 ## 当前 Bug
+- 用户报告的外围白框与阴影间隙已定位并修复；最终原生包、208 个外围像素与 16/64 组直边/圆角检查通过。实际 Acrylic 后方应用观感、分数 DPI 动画 / 多屏 / HDR、高对比度与真实鼠标点击穿透仍需验收，不把色板检查当作全面桌面视觉测试。
+- 扩展边缘诊断第一次完整运行中，既有主题/强调色预览焦点断言失败一次；原因未确认，未删除或放宽断言，补充前后 HWND 信息。最终构建及实际便携包完整复测均通过，未再次复现，保留观察。
 - 本轮边框与图标在已执行的编译/原生诊断范围内无未解决失败。实际系统色/高对比度切换、多屏、Explorer 图标缓存及真实托盘展示仍待桌面验收，不以 HICON 加载代替视觉验收。
 - 用户截图指出的隐藏底板外围矩形和扩展轨迹/退场底板滞后已修复，实际便携包的 HWND 区域及运动过程采样通过；当前已执行的检查无未解决失败。此前零 alpha 断言不足以验证原生矩形消失，现已补充真实窗口形状与过渡过程检查。真实桌面观感及混合 DPI 仍需验收。
 - 本轮 UI 在已执行的编译和原生无发送诊断范围内无未解决失败；设置 Style 类型、NavigationView 属性名、修饰键最小宽度、窄工具条 padding 与初始流式跟随问题已修复。既有真实发送和多屏验收限制仍保留，不将生成回调当作完整业务端到端结果。
@@ -79,6 +91,9 @@
 - 旧 Codex LocalCache 部署文件保留，不作为正式 Host 依赖；Codex 内 Test-Path 不能证明 Chrome 可见，应使用 -VerifyOnly 检查。
 
 ## 最近修改文件
+- 本轮外沿修复：src/ScreenShot.App/PanelInputTransparency.cs（持续无框样式/全客户区）；FloatingPanelWindow.cs（材质/色层/描边共同外缘）；Native.cs（DWORD STYLESTRUCT）；RuntimeDiagnostics.cs（外围/直边/圆角受控像素、绘制边界/样式检查、焦点失败详情）；README.md、docs/UI_DESIGN.md、PROJECT_STATUS.md。
+- 移除底板：FloatingPanelWindow.cs、SettingsWindow.cs、PanelAppearance.cs、AdjustableBackdrop.cs；新增 TransparentPanelBackdrop.cs、PanelGeometry.cs、PanelInputTransparency.cs，移除 PanelWindowRegion.cs；Native.cs、RuntimeDiagnostics.cs、App.xaml.cs、AppearanceTests.cs 与 README / UI_DESIGN / PROJECT_STATUS 同步。
+- 白边/阴影/材质混色：src/ScreenShot.App/PanelWindowRegion.cs（材质内缘/圆角区域与 alpha）；PanelShadowWindow.cs、Native.cs（独立阴影 HWND、BGRA 上传与资源释放）；FloatingPanelWindow.cs（材质混色及阴影显隐/位置/过渡同步）；AdjustableBackdrop.cs、AppThemeController.cs（tint/fallback 混色及高对比度）；SettingsWindow.cs（阴影/混入控件与预览持久化）；RuntimeDiagnostics.cs（实际 region / HWND / tint / 命中及性能）；src/ScreenShot.Core/PanelAppearance.cs、PanelShadowMask.cs、tests/ScreenShot.Tests/AppearanceTests.cs（配置/边界/纯内存阴影回归）；README.md、docs/UI_DESIGN.md、PROJECT_STATUS.md。
 - 边框与图标：src/ScreenShot.Core/PanelAppearance.cs、tests/ScreenShot.Tests/AppearanceTests.cs（边框兼容配置/边界）；src/ScreenShot.App/SettingsWindow.cs、FloatingPanelWindow.cs、AppThemeController.cs（边框控件、叠加描边、语义色与桌面高对比度）；ScreenShot.App.csproj、Assets/AppIcon.ico、Assets/AppIcon.png、AppIcon.cs、Native.cs、TrayService.cs、FloatingBallWindow.cs（嵌入/窗口/托盘/入口）；RuntimeDiagnostics.cs（实际控件/描边/图标回归）；scripts/create-app-icon.ps1、README.md、docs/UI_DESIGN.md、docs/icon-candidates/README.md、PROJECT_STATUS.md。
 - 应用主题/强调色：src/ScreenShot.App/AppThemeController.cs（窗口注册、系统通知、主题字典和原生语义色）；SettingsWindow.cs（主题/颜色控件、预览/保存/撤销）；App.xaml.cs、FloatingBallWindow.cs、FloatingPanelWindow.cs、ToolbarWindow.cs（所有窗口接入）；RuntimeDiagnostics.cs（原生主题/颜色/ColorPicker 回归）；src/ScreenShot.Core/PanelAppearance.cs、tests/ScreenShot.Tests/AppearanceTests.cs（兼容配置/边界）；README.md、docs/UI_DESIGN.md、docs/icon-candidates/README.md、ai-screenshot-fluent-v1.png、PROJECT_STATUS.md。
 - 底板/动效缺陷修复：src/ScreenShot.App/PanelWindowRegion.cs（圆角 HWND 区域、同步退场边界、HRGN 生命周期）；FloatingPanelWindow.cs（固定左端扩展、整体收起高度/间距、布局区域同步与结束顺序）；Native.cs（region/client origin API）；RuntimeDiagnostics.cs（真实 native region 和运动过程采样）；README.md、docs/UI_DESIGN.md、PROJECT_STATUS.md。
@@ -100,12 +115,12 @@
 - README.md、PROJECT_STATUS.md：新版操作、布局、回复读取范围与实际验收状态。
 
 ## 已确认设计决策
-- 三块面板外缘使用原始强调色，其他控件/正文/材质维持原生中性主题资源；描边叠加绘制而不改变内容 BorderThickness，保留既有布局/窗口区域/动画和命中几何。高对比度使用 Microsoft.UI.System.ThemeSettings 与系统主题刷，关闭时解除事件。边框默认 1px，粗细随 DPI 缩放，关闭仅停止描边，不丢失宽度配置。
+- 当前取消公共底板，只绘制两个原生圆角面板；不得恢复 HWND region 或额外视觉裁切。透明宿主启用 DWM alpha，Region=null，不是第三块材质；阴影与命中只使用面板测量值，缩放入口只属于两栏。保留独立材质和统一可调强调色混入，默认 18%，正文不做整体 opacity 染色。
+- 两栏外缘使用原始强调色，其他控件/正文维持原生主题资源；面板承载 BorderThickness 为 0，材质/色层/主题描边/阴影共用外缘，描边向内叠加，不改变内容布局与命中几何。无边框时为阴影紧贴材质，有边框时为阴影紧贴描边、描边覆盖材质边缘。原生宿主持续禁用 frame / edge 位，客户区占据整个 HWND，不改变 DWM alpha。高对比度使用 Microsoft.UI.System.ThemeSettings 与系统主题刷，关闭时解除事件。边框默认 1px，粗细随 DPI 缩放，关闭不丢失宽度配置。
 - 应用主题与强调色为 UI 外观字段，默认跟随系统；系统模式读取 UISettings 并将实际明/暗写到各窗口根，监听系统颜色变化，不修改 Windows 设置。自定义颜色仅接受不透明 RGB，使用原生控件及窗口作用域 Light/Dark 资源，高对比度继续使用系统色；主按钮文字优先可读，正文和材质维持中性色。全部窗口共享外观草稿，保存后持久化，关闭设置撤销未保存草稿。
 - 图标先生成候选，用户本轮明确要求替换程序图标后接入；原图及提示词保留，可执行文件、窗口/任务栏、托盘和悬浮入口使用同一已确认设计。
-- 透明背景 alpha 与实际原生窗口区域分开处理：隐藏底板必须将 HWND 区域限制为两栏圆角并集。可见底板按实际内容边界形成一个圆角区域；LayoutUpdated 同步区域，几何未变则跳过，避免重复修改和逐帧 HWND 尺寸变化。底板退场与两栏高度/间距同一时序；扩展始终固定左端，完成后恢复正常 Stretch 布局。
-- 隐藏底板默认关闭，面板过渡默认开启，旧配置自动获得默认值。底板隐藏仅影响公共背景及外框，子区域独立材质/边框不变；取消隐藏恢复既有材质参数。小工具条约 202 逻辑像素，保留菜单箭头作为恢复入口，消息栏不随之收窄；仅小工具条显示时 HWND 收窄，扩展恢复正常宽度。动画使用现有 Motion token 和原生 Storyboard，不按帧改 HWND；快速切换冻结当前值再重定向。应用/系统禁用动画即时完成，截图前同步隐藏保持业务生命周期。Windows 在主动隐藏已激活窗口后转移焦点属于原生行为，恢复时不抢回焦点。
-- 本轮参考 DeskBox 的 NavigationView、统一设置行、Capsule 及可调控制器设计模式，使用现有 WinUI / Windows App SDK 独立实现，无新依赖或源码/资源复制。共享 ResourceDictionary 使用 ThemeResource 和原生按钮模板。设置窗口使用 Mica；悬浮底板/两栏使用 Desktop Acrylic（后方当前可见桌面内容），三组外观独立配置，IsInputActive 与真实焦点分离，仍遵循系统材质降级。透明色层叠加在底板上，三个区域均选它才关闭全部额外模糊。外观保存独立于业务字段校验，关闭设置撤销外观草稿；常规保存/快捷键恢复/目录即时保存/连接检测保持原流程。settings.json 只增加兼容的 PanelAppearance 字段。
+- 不再保留隐藏底板开关或公共底板材质，旧 HWND region 方案已废弃。面板过渡默认开启；小工具条约 202 逻辑像素，保留菜单箭头，消息栏不随之收窄；仅小工具条显示时 HWND 收窄，扩展恢复正常宽度。动画使用 Motion token 和原生 Storyboard，扩展始终固定左端、完成后恢复 Stretch；两栏退场与阴影同步，快速切换冻结当前值再重定向。应用/系统禁用动画即时完成，截图前同步隐藏。Windows 在主动隐藏已激活窗口后转移焦点属于原生行为，恢复时不抢回焦点。
+- 参考 DeskBox 的 NavigationView、统一设置行、Capsule 及可调控制器设计模式，使用现有 WinUI / Windows App SDK 独立实现，无新依赖或源码/资源复制。共享 ResourceDictionary 使用 ThemeResource 和原生按钮模板。设置窗口使用 Mica；悬浮两栏使用独立 Desktop Acrylic（后方当前可见桌面内容），IsInputActive 与真实焦点分离，仍遵循系统材质降级。两组均选择透明色层即可关闭面板模糊。外观保存独立于业务字段校验，关闭设置撤销外观草稿；常规保存/快捷键恢复/目录即时保存/连接检测保持原流程。settings.json 保留兼容的 PanelAppearance 字段。
 - 面板仍为同一个无标题栏 WinUI 窗口，正常两块 surface 共享宽度并一起移动，工具栏缩小时消息宽度保留；工具栏空白处、消息标题和非滚动区空白背景用于移动，边缘/角用于缩放，控件与可选文本保留原有操作。本次运行内保留手动位置，不将位置持久化为设置。顶部外侧与 Toolbar Top/顶部角改变整体高度，其余栏边缘分别调整高度。只使用一个 Button + 原生 MenuFlyout，菜单提供两栏“隐藏/显示”和工具栏“缩小/扩展”；工具栏可见时按钮在其右端，隐藏时同一个按钮移至消息标题右端，工具栏尺寸项暂禁用，不产生额外箭头或无恢复入口的空窗口。菜单及拖动入口参考 Astryx 的短动作菜单、控件操作隔离和无障碍提示约定，仅借鉴交互，不增加依赖。拖动使用真实鼠标左键捕获与屏幕坐标累计位移，不固定坐标定位控件。底部发送与工具栏 Codex 复用同一发送/防重发流程。ChatGPT 保留既有官网上传提交流程，默认提示词与旧设置/API 兼容。
 - Markdown 使用纯 .NET 解析和原生 RichTextBlock/Run/Hyperlink/ScrollViewer，不使用 WebView、不拉取远程图片、不执行 HTML；仅开放合法 HTTP(S) 链接，常见块/行内语法可逐步渲染。80ms 内只渲染最新流式快照，普通最终 Text 立即刷新；收起/卸载不会重新打开窗口。
 - 用户明确选择“直接用 provider，在截图工具消息栏显示回复，工作目录由我选择”，后续报告期望 Codex 中存在新聊天；正常请求现创建独立持久 thread（ephemeral=false）并命名，不依赖桌面当前聊天。未指定 CLI 时优先桌面内置版本；沿用其模型/登录，经公开 account/read、config/read 和 model/list 预检，不读登录令牌。准备/本地回执各有 90 秒期限，回复读取无固定期限；连接检测 30 秒。只读 sandbox 与 never 批准，不放宽权限或改变 CLI 全局配置；正常 Codex 发送不访问剪贴板，ChatGPT 路径不变。
@@ -123,6 +138,6 @@
 - 实际 Chrome 扩展 ID 为 dmcdjpekhmjmcbjcaiillldpekdopocd，注册应使用浏览器实测 ID。alarms 不新增网页权限，重连不重放业务任务，无法修复错误注册。
 
 ## 后续计划
-- 最新包 dist/AIScreenShot-win-x64-accent-borders-icon 已生成并通过实际 EXE 原生无发送诊断及产物一致性检查；从托盘退出旧实例后运行新版，桌面验收系统主题/颜色变化、原生材质及多屏操作。旧 panel-region-motion-fix / panel-transitions / adjustable-materials / fluent-ui 等包保留。工作目录与默认提示词操作保留；显式旧 CLI 路径可清空使其自动选择桌面版本，或指定新版。
+- 使用已生成并验证的 dist/AIScreenShot-win-x64-pane-edges，退出托盘旧实例后验收两块面板、外围无白框、阴影紧贴、混色及多屏鼠标操作；观察是否再次出现设置预览焦点断言。保留 two-pane / shadow-tint 和所有旧包，无本轮 commit/push。
 - 完成真实 Codex 回复与多屏桌面验收；Chrome 重新加载原扩展后验证自动连接，再验证官网发送。
 - 此前本地提交 cc4d1d9 包含原生面板、Codex provider/持久会话及旧修复，七项界面优化/顶部缩放/唯一显隐菜单/面板移动已在此前用户授权下合并为一次本地提交。本轮 Fluent UI、可调材质/过渡/底板修复、主题/边框与已确认图标按用户 2026-10-06 明确要求纳入本地 Git 提交；未 push。构建产物、便携包与临时诊断不纳入仓库。

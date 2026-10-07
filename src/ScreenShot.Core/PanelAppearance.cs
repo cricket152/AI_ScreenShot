@@ -16,11 +16,13 @@ public sealed record PanelAppearance
     public AppThemeMode Theme {get;init;}=AppThemeMode.System;
     public AccentColorMode AccentMode {get;init;}=AccentColorMode.System;
     public string CustomAccentColor {get;init;}=DefaultCustomAccent;
-    public bool HideWindowBase {get;init;}
     public bool EnableAnimations {get;init;}=true;
     public bool ShowBorders {get;init;}=true;
     public double BorderThickness {get;init;}=1;
-    public SurfaceAppearance Base {get;init;}=new(SurfaceMaterial.AcrylicThin,0.32);
+    public double AccentMix {get;init;}=0.18;
+    public bool ShowShadow {get;init;}=true;
+    public double ShadowSpread {get;init;}=12;
+    public double ShadowOpacity {get;init;}=0.16;
     public SurfaceAppearance Toolbar {get;init;}=new(SurfaceMaterial.AcrylicThin,0.42);
     public SurfaceAppearance Messages {get;init;}=new(SurfaceMaterial.Acrylic,0.82);
 
@@ -29,9 +31,11 @@ public sealed record PanelAppearance
         Theme=Enum.IsDefined(Theme)?Theme:AppThemeMode.System,
         AccentMode=Enum.IsDefined(AccentMode)?AccentMode:AccentColorMode.System,
         CustomAccentColor=NormalizeAccentColor(CustomAccentColor),
-        HideWindowBase=HideWindowBase,EnableAnimations=EnableAnimations,
+        EnableAnimations=EnableAnimations,
         ShowBorders=ShowBorders,BorderThickness=double.IsFinite(BorderThickness)?Math.Clamp(BorderThickness,0.5,3):1,
-        Base=(Base??new(SurfaceMaterial.AcrylicThin,0.32)).Normalize(),
+        AccentMix=double.IsFinite(AccentMix)?Math.Clamp(AccentMix,0,1):0.18,
+        ShowShadow=ShowShadow,ShadowSpread=double.IsFinite(ShadowSpread)?Math.Clamp(ShadowSpread,0,32):12,
+        ShadowOpacity=double.IsFinite(ShadowOpacity)?Math.Clamp(ShadowOpacity,0,0.5):0.16,
         Toolbar=(Toolbar??new(SurfaceMaterial.AcrylicThin,0.42)).Normalize(),
         Messages=(Messages??new(SurfaceMaterial.Acrylic,0.82)).Normalize()
     };

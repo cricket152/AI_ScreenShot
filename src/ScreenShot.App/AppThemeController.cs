@@ -48,6 +48,7 @@ internal sealed class AppThemeController : IDisposable
         if(scope==null||scope.ThemeSettings.HighContrast)return SystemBrush("SystemControlHighlightAccentBrush",root.ActualTheme);
         return (SolidColorBrush)(root.ActualTheme==ElementTheme.Dark?scope.Dark:scope.Light)["SystemControlHighlightAccentBrush"];
     }
+    internal bool IsHighContrast(FrameworkElement root)=>windows.Values.FirstOrDefault(scope=>ReferenceEquals(scope.Root,root))?.ThemeSettings.HighContrast==true;
 
     internal void Track(Window window)
     {
