@@ -18,9 +18,9 @@ public partial class App : Application
     private bool ballWanted=true;
     internal Settings Settings {get;}=Settings.Load();
     internal AppThemeController Themes {get;}
-    internal BrowserBridge Bridge {get;private set;}=null!;
+    internal AgentClient Agent {get;}
     internal CodexTarget Codex {get;private set;}=null!;
-    public App(){Native.SetCurrentProcessExplicitAppUserModelID("AIScreenShot.Desktop");InitializeComponent();Themes=new(Settings.PanelAppearance);UnhandledException+=(_,e)=>{tray?.Notify("应用错误",e.Message);e.Handled=true;};}
+    public App(){Native.SetCurrentProcessExplicitAppUserModelID("AIScreenShot.Desktop");InitializeComponent();Themes=new(Settings.PanelAppearance);Agent=new(()=>Settings.Agent);UnhandledException+=(_,e)=>{tray?.Notify("应用错误",e.Message);e.Handled=true;};}
     internal void ApplyAppearance(PanelAppearance appearance){Themes.Apply(appearance);Panel?.ApplyAppearance(appearance);}
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
@@ -42,12 +42,11 @@ public partial class App : Application
         if(clipboardTest){RunClipboardTest();return;}
         if(providerTest){RunCodexProviderTest();return;}
         if(codexWindowTest){RunCodexWindowTest(codexReadyTest);return;}
-        string[] launchArguments=Environment.GetCommandLineArgs();int browserIndex=Array.IndexOf(launchArguments,"--browser");
-        if(browserIndex>=0&&browserIndex+1<launchArguments.Length&&launchArguments[browserIndex+1] is "Chrome" or "Edge"){Settings.Browser=launchArguments[browserIndex+1];Settings.Save();}
+        string[] launchArguments=Environment.GetCommandLineArgs();
         var dispatcher=Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
         if(floatingTest){Codex=new(dispatcher);RunFloatingTest();return;}
         if(toolbarTest){Codex=new(dispatcher);RunToolbarTest();return;}
-        Bridge=new(Settings);Codex=new(dispatcher,Settings);
+        Codex=new(dispatcher,Settings);
         tray=new(Settings,()=>dispatcher.TryEnqueue(BeginCapture),()=>dispatcher.TryEnqueue(ShowSettings),()=>dispatcher.TryEnqueue(Shutdown),()=>dispatcher.TryEnqueue(ShowFloatingBall));
         if(!launchArguments.Contains("--smoke-test"))ShowFloatingBall();
         if(Environment.GetCommandLineArgs().Contains("--capture"))BeginCapture();
@@ -209,6 +208,7 @@ public partial class App : Application
             if(Panel!=null||Native.IsWindowVisible(closedOverlayHandle))throw new InvalidOperationException("Closing message panel did not dismiss capture overlay");
             string codexChecks=await VerifyCodexPanelSendAsync(fixture);
             string composerChecks=await VerifyComposerAndBrowserAsync(fixture);
+            composerChecks+=await VerifyTextOnlyComposerAsync();
             await File.WriteAllTextAsync(Path.Combine(output,"floating-ui-test.txt"),"PASS: 52 logical pixel native ball, panel creation, empty state and Light/Dark generated previews\nPASS: ball toggles both panels; toolbar arrow collapses independently and restores\nPASS: shared toolbar/message width alignment through production resize callbacks; monitor bounds retained\nPASS: native Markdown controls render headings, emphasis, quote, list, code and table\nPASS: 120 streaming Markdown snapshots retain raw text immediately, render the latest table once, and flush final content\nPASS: processing state, operation hide/restore, successful capture dismissal retains messages\nPASS: on-top details, concurrent preview replacement, collapsed/operation preview stays closed after decoding\nPASS: hidden ball remains hidden, collapse/reopen, cancelled capture does not reopen\nPASS: closing message panel dismisses capture overlay\n"+fluentChecks+visibilityAndResizeChecks+moveChecks+codexChecks+composerChecks+"No desktop screenshot, clipboard access, browser connection, or real send was performed.\n");
         }
         catch(Exception e){await File.WriteAllTextAsync(Path.Combine(output,"floating-ui-test.txt"),"FAIL: "+e.GetType().Name+": "+e.Message+"\n"+e.StackTrace);Environment.ExitCode=1;}
@@ -231,8 +231,8 @@ public partial class App : Application
             return new(origin.X+PanelResizePolicy.GripThickness+4,origin.Y+panel.ToolbarSurface.ActualHeight/2);
         }
         Windows.Foundation.Point TitlePoint()=>panel.MessageDragTitle.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point(8,panel.MessageDragTitle.ActualHeight/2));
-        var textBox=Descendants(root).OfType<TextBox>().Single();var selectedText=Descendants(root).OfType<Microsoft.UI.Xaml.Controls.RichTextBlock>().First();
-        if(panel.CanMoveSourceForDiagnostic(panel.VisibilityMenuButton)||panel.CanMoveSourceForDiagnostic(panel.ComposerSendButton)||panel.CanMoveSourceForDiagnostic(textBox)||panel.CanMoveSourceForDiagnostic(selectedText)||!panel.CanMoveSourceForDiagnostic(panel.MessageDragTitle))
+        var textBoxes=Descendants(root).OfType<TextBox>().ToArray();var selectedText=Descendants(root).OfType<Microsoft.UI.Xaml.Controls.RichTextBlock>().First();
+        if(panel.CanMoveSourceForDiagnostic(panel.VisibilityMenuButton)||panel.CanMoveSourceForDiagnostic(panel.ComposerSendButton)||textBoxes.Length==0||textBoxes.Any(box=>panel.CanMoveSourceForDiagnostic(box))||panel.CanMoveSourceForDiagnostic(panel.ComposerModeSelector)||panel.CanMoveSourceForDiagnostic(selectedText)||!panel.CanMoveSourceForDiagnostic(panel.MessageDragTitle))
             throw new InvalidOperationException("Move source filtering did not protect controls and selectable Markdown text");
         Native.GetWindowRect(panel.Handle,out var original);
         if(!panel.MoveAtForDiagnostic(ToolbarPoint(),1,1))throw new InvalidOperationException("Toolbar background did not receive a native move hit");
@@ -509,18 +509,22 @@ public partial class App : Application
             if(!Equals(settingPrompt.Header,"默认提示词")||Newlines(settingPrompt.Text)!=Newlines(Settings.DefaultPrompt)||!settingPrompt.AcceptsReturn||settingPrompt.MaxLength!=16000)throw new InvalidOperationException("Default prompt settings editor was not populated");
             string settingsChecks=await RuntimeDiagnostics.VerifySettingsDesignAsync((SettingsWindow)settingsWindow,Path.Combine(AppContext.BaseDirectory,"diagnostics"));
             settingsWindow.Close();
-            var requests=new List<SendRequest>();int browserCalls=0;SendState browserState=SendState.Sent;
+            var requests=new List<SendRequest>();int agentCalls=0;SendState agentState=SendState.Sent;
             Panel?.Close();
             var panel=new FloatingPanelWindow(this,(request,update,_)=>
             {
                 requests.Add(request);update(new(CodexReplyPhase.Submitted));update(new(CodexReplyPhase.Thinking,"## 生成回复\n\n**正文**","正在回复"));
                 update(new(CodexReplyPhase.Completed,"## 生成回复\n\n**正文**\n\n```text\nfixture\n```"));
                 return Task.FromResult(new SendResult(SendState.Sent,"诊断提交成功"));
-            },(request,_)=>
+            },(request,update,_)=>
             {
-                browserCalls++;
-                if(request.EffectivePrompt!=Settings.DefaultPrompt||!request.Png.AsSpan().SequenceEqual(fixture))throw new InvalidOperationException("Browser request lost its effective prompt or fixture");
-                return Task.FromResult(new SendResult(browserState,"生成的浏览器提交回执"));
+                agentCalls++;
+                if(Panel!.ComposerModeSelector.IsEnabled)throw new InvalidOperationException("Send mode can change during an Agent operation");
+                if(request.EffectivePrompt!=Settings.DefaultPrompt||!request.Png.AsSpan().SequenceEqual(fixture))throw new InvalidOperationException("Agent request lost its effective prompt or fixture");
+                update(new(AgentReplyPhase.Submitted));update(new(AgentReplyPhase.Thinking,"## Agent 回复\n\n**正文**",ModelName:"fixture-vision-model"));
+                if(agentState==SendState.Sent)update(new(AgentReplyPhase.Completed,"## Agent 回复\n\n**正文**"));
+                else update(new(AgentReplyPhase.Unavailable,"## Agent 回复\n\n**正文**","生成的连接中断"));
+                return Task.FromResult(new SendResult(agentState,"生成的 Agent 回执"));
             });Panel=panel;
             async Task InvokeComposerAsync()
             {
@@ -528,10 +532,10 @@ public partial class App : Application
                 var peer=new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(panel.ComposerSendButton);
                 var invoke=(Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider?)peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke);
                 if(invoke==null)throw new InvalidOperationException("Composer button has no native Invoke pattern");
-                int before=requests.Count;invoke.Invoke();
+                int before=requests.Count+agentCalls;invoke.Invoke();
                 using var invokeTimeout=new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                while(requests.Count==before)await Task.Delay(20,invokeTimeout.Token);
-                await (panel.ComposerSendTask??throw new InvalidOperationException("Composer button did not invoke the Codex sender")).WaitAsync(TimeSpan.FromSeconds(5));
+                while(requests.Count+agentCalls==before)await Task.Delay(20,invokeTimeout.Token);
+                await (panel.ComposerSendTask??throw new InvalidOperationException("Composer button did not invoke the selected sender")).WaitAsync(TimeSpan.FromSeconds(5));
             }
             await panel.PresentAsync(fixture,new PixelRect(0,0,320,200));
             if(!panel.CanSendFromComposer)throw new InvalidOperationException("Composer send button did not enable after a capture");
@@ -540,17 +544,91 @@ public partial class App : Application
                 throw new InvalidOperationException("Composer lost default prompt, Markdown output or confirmed submission protection");
             await panel.PresentAsync(fixture,new PixelRect(0,0,320,200));panel.PromptText="**生成的手动提示词**";await InvokeComposerAsync();
             if(requests.Count!=2||requests[1].EffectivePrompt!=panel.PromptText)throw new InvalidOperationException("Manual prompt did not override the configured default");
-            string reply=panel.ResponseText;int messageCount=panel.MessageCount;
+            if(panel.ComposerModeSelector.SelectedIndex!=0)throw new InvalidOperationException("Composer default is not Codex");
+            panel.ComposerModeSelector.SelectedIndex=1;
+            if(!panel.CanSendFromComposer)throw new InvalidOperationException("Agent composer inherited Codex submission lock");
+            panel.ComposerModeSelector.SelectedIndex=0;
+            if(panel.CanSendFromComposer)throw new InvalidOperationException("Codex composer lost its submission lock on mode switch");
+            panel.ComposerModeSelector.SelectedIndex=1;Settings.Workspace=null;
+            int messageCount=panel.MessageCount;
             foreach(var state in new[]{SendState.Sent,SendState.Unknown})
             {
-                browserState=state;await panel.PresentAsync(fixture,new PixelRect(0,0,320,200));int expectedCalls=browserCalls+1;
-                await panel.SendChatGptAsync();await panel.SendChatGptAsync();
-                if(browserCalls!=expectedCalls||panel.MessageCount!=messageCount||panel.ResponseText!=reply||panel.IsBusy||panel.IsProcessing||!Native.IsWindowVisible(panel.Handle))
-                    throw new InvalidOperationException("Browser sends created panel messages, discarded Codex output or allowed an acknowledged/unknown resend");
+                agentState=state;await panel.PresentAsync(fixture,new PixelRect(0,0,320,200));messageCount=panel.MessageCount;int expectedCalls=agentCalls+1;
+                if(panel.ComposerModeSelector.SelectedIndex!=1)throw new InvalidOperationException("New capture discarded composer mode");
+                await InvokeComposerAsync();await panel.SendAgentAsync();
+                if(agentCalls!=expectedCalls||panel.MessageCount!=messageCount+2||!panel.ResponseText.Contains("Agent 回复")||panel.ResponseModelName!="fixture-vision-model"||panel.IsBusy||panel.IsProcessing||panel.CanSendFromComposer||!panel.ComposerModeSelector.IsEnabled||requests.Count!=2||!Native.IsWindowVisible(panel.Handle))
+                    throw new InvalidOperationException("Agent reply/model metadata failed to render or allowed an acknowledged/unknown resend");
+                if(state==SendState.Sent)
+                {
+                    var root=(FrameworkElement)panel.Content;
+                    foreach(var theme in new[]{ElementTheme.Light,ElementTheme.Dark})
+                    {
+                        root.RequestedTheme=theme;await Task.Delay(120);
+                        await File.WriteAllBytesAsync(Path.Combine(AppContext.BaseDirectory,"diagnostics",$"agent-response-model-{theme}.png"),await RuntimeDiagnostics.RenderAsync(root));
+                    }
+                }
             }
-            return settingsChecks+"PASS: default prompt settings editor, native composer Invoke, manual override and Markdown reply rendering\nPASS: composer reuses Codex submission protection; browser sends preserve panel history without adding messages\n";
+            return settingsChecks+"PASS: default prompt settings editor, native composer Invoke, manual override and Markdown reply rendering\nPASS: composer mode selects Codex/Agent sender independently; mode survives captures, locks during operations, and respects per-target Sent/Unknown resend protection; Agent needs no Codex workspace and reports the response model at the bubble header\n";
         }
         finally{settingsWindow?.Close();Panel?.Close();Settings.DefaultPrompt=previousDefault;Settings.Workspace=previousWorkspace;}
+    }
+    private async Task<string> VerifyTextOnlyComposerAsync()
+    {
+        string? previousWorkspace=Settings.Workspace,previousDirectory=Settings.CodexDirectory;
+        try
+        {
+            Settings.Workspace="text diagnostic";Settings.CodexDirectory=Directory.GetCurrentDirectory();
+            var sent=new List<(string Target,SendRequest Request)>();SendState agentState=SendState.Sent;
+            Panel?.Close();
+            var panel=new FloatingPanelWindow(this,(request,update,_)=>
+            {
+                sent.Add(("Codex",request));update(new(CodexReplyPhase.Submitted));update(new(CodexReplyPhase.Completed,"纯文本 Codex 回复"));
+                return Task.FromResult(new SendResult(SendState.Sent,"纯文本诊断完成"));
+            },async(request,update,token)=>
+            {
+                if(Panel!.CanSendFromComposer||Panel.ComposerModeSelector.IsEnabled)throw new InvalidOperationException("Text-only send controls remain enabled while busy");
+                sent.Add(("Agent",request));await Task.Delay(20,token);
+                if(agentState!=SendState.Failed)update(new(agentState==SendState.Sent?AgentReplyPhase.Completed:AgentReplyPhase.Unavailable,"纯文本 Agent 回复",ModelName:"text-diagnostic-model"));
+                return new SendResult(agentState,"纯文本诊断回执");
+            });Panel=panel;panel.Open();await Task.Delay(120);
+            async Task SetPromptAsync(string text)
+            {
+                panel.PromptText=text;
+                // WinUI dispatches TextChanged after a programmatic Text assignment.
+                await Task.Delay(100);
+            }
+            async Task InvokeAsync()
+            {
+                if(!panel.CanSendFromComposer)throw new InvalidOperationException("Text-only composer did not enable for a valid new prompt");
+                var peer=new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(panel.ComposerSendButton);
+                int before=sent.Count;
+                ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
+                using var invokeTimeout=new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                while(sent.Count==before)await Task.Delay(20,invokeTimeout.Token);
+                await (panel.ComposerSendTask??throw new InvalidOperationException("Text-only Invoke did not dispatch")).WaitAsync(TimeSpan.FromSeconds(5));
+                if(sent[^1].Request.Png.Length!=0||sent[^1].Request.EffectivePrompt!=panel.PromptText||panel.IsBusy||panel.IsProcessing)throw new InvalidOperationException("Text-only send created an image, changed the prompt or stayed busy");
+            }
+            foreach(int mode in new[]{0,1})
+            {
+                panel.ComposerModeSelector.SelectedIndex=mode;await SetPromptAsync(" \r\n\t");
+                if(panel.CanSendFromComposer||panel.CanSendToCodex||panel.CanSendToAgent)throw new InvalidOperationException("Empty text-only draft can send the screenshot default");
+                await SetPromptAsync("你好");await InvokeAsync();
+                if(panel.CanSendFromComposer||panel.MessageCount!=(mode+1)*2)throw new InvalidOperationException("Text-only send lacks bubbles or allows duplicate submission");
+            }
+            Settings.Workspace=null;Settings.CodexDirectory=null;
+            await SetPromptAsync("继续聊聊");await InvokeAsync();
+            if(sent[^1].Target!="Agent"||panel.ResponseModelName!="text-diagnostic-model")throw new InvalidOperationException("Text-only Agent needs a Codex directory or lost model metadata");
+            agentState=SendState.Unknown;await SetPromptAsync("未知结果的纯文本");await InvokeAsync();
+            if(panel.CanSendFromComposer)throw new InvalidOperationException("Unknown text-only receipt became retryable");
+            panel.ComposerModeSelector.SelectedIndex=0;panel.ComposerModeSelector.SelectedIndex=1;
+            if(panel.CanSendFromComposer)throw new InvalidOperationException("Mode toggle unlocks an Unknown text-only request");
+            await SetPromptAsync("你好");
+            if(panel.CanSendFromComposer)throw new InvalidOperationException("Restoring an already submitted prompt allows a resend");
+            agentState=SendState.Failed;await SetPromptAsync("本地失败可重试");await InvokeAsync();
+            if(!panel.CanSendFromComposer)throw new InvalidOperationException("Failed text-only request was locked as submitted");
+            return "PASS: no-capture text-only Codex/Agent native Send Invoke; whitespace disabled, unchanged prompts Sent/Unknown protected, different prompts enable another independent request, Failed remains retryable; Agent needs no Codex directory and preserves model metadata\n";
+        }
+        finally{Panel?.Close();Settings.Workspace=previousWorkspace;Settings.CodexDirectory=previousDirectory;}
     }
     internal void BeginCapture()
     {
@@ -652,7 +730,7 @@ public partial class App : Application
         settingsWindow=new SettingsWindow(this,(modifiers,key)=>tray?.ChangeHotkey(modifiers,key)==true);
         settingsWindow.Closed+=(_,_)=>settingsWindow=null;settingsWindow.Activate();
     }
-    private void Shutdown(){ballWanted=false;EndCaptureSession();Panel?.Close();Ball?.Close();Themes.Dispose();Codex?.Dispose();ClipboardService.ReleaseRetained();Bridge?.Dispose();tray?.Dispose();instance?.ReleaseMutex();instance?.Dispose();Exit();}
+    private void Shutdown(){ballWanted=false;EndCaptureSession();Panel?.Close();Ball?.Close();Themes.Dispose();Codex?.Dispose();ClipboardService.ReleaseRetained();Agent.Dispose();tray?.Dispose();instance?.ReleaseMutex();instance?.Dispose();Exit();}
     private async void RunSmokeTest()
     {
         string output=Path.Combine(AppContext.BaseDirectory,"diagnostics");Directory.CreateDirectory(output);
@@ -686,14 +764,7 @@ public partial class App : Application
                 await File.WriteAllTextAsync(Path.Combine(output,"codex-result.txt"),result.State+": "+result.Message);
                 Toolbar.AppWindow.Show(false);
             }
-            if(arguments.Contains("--test-chatgpt"))
-            {
-                await File.WriteAllTextAsync(Path.Combine(output,"chatgpt-result.txt"),"等待 Chrome 扩展连接");
-                var end=DateTime.UtcNow.AddMinutes(3);
-                while(!Bridge.Status.Contains("已连接")&&DateTime.UtcNow<end)await Task.Delay(500);
-                var result=await Bridge.SendAsync(new SendRequest(fixture,"这是一条 AI ScreenShot 截图工具的端到端测试，请只回复“截图与提示词已收到”。",null),CancellationToken.None);
-                await File.WriteAllTextAsync(Path.Combine(output,"chatgpt-result.txt"),result.State+": "+result.Message);
-            }
+
         }
         catch(Exception e){await File.WriteAllTextAsync(Path.Combine(output,"runtime-error.txt"),e.GetType().Name+": "+e.Message);}
     }

@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using System.Text.Json;
 
 namespace ScreenShot.Core;
@@ -21,8 +20,9 @@ public sealed record Workspace(string Name, string? DirectoryPath=null);
 public sealed record SendRequest(byte[] Png, string Prompt, Workspace? Workspace, string? DefaultPrompt=null)
 {
     public const string BuiltInDefaultPrompt="请描述并分析这张截图";
+    public bool HasContent => Png.Length>0||!string.IsNullOrWhiteSpace(Prompt);
     public string EffectivePrompt => !string.IsNullOrWhiteSpace(Prompt) ? Prompt :
-        !string.IsNullOrWhiteSpace(DefaultPrompt) ? DefaultPrompt : BuiltInDefaultPrompt;
+        Png.Length==0 ? "" : !string.IsNullOrWhiteSpace(DefaultPrompt) ? DefaultPrompt : BuiltInDefaultPrompt;
 }
 public interface ISendTarget { Task<SendResult> SendAsync(SendRequest request, CancellationToken cancellationToken); }
 public sealed class Settings
@@ -35,7 +35,8 @@ public sealed class Settings
         get=>defaultPrompt;
         set=>defaultPrompt=string.IsNullOrWhiteSpace(value)?SendRequest.BuiltInDefaultPrompt:value;
     }
-    public string Browser { get; set; } = "Edge";
+    private AgentSettings agent=new();
+    public AgentSettings Agent {get=>agent;set=>agent=value??new();}
     public string? Workspace { get; set; }
     public string? CodexDirectory { get; set; }
     public List<string> CodexDirectories { get; set; } = [];
@@ -43,23 +44,23 @@ public sealed class Settings
     public uint HotkeyModifiers { get; set; } = 3;
     public uint HotkeyKey { get; set; } = 0x53;
     public static string DirectoryPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"AIScreenShot");
+    [System.Text.Json.Serialization.JsonIgnore] public string? LoadWarning {get;private set;}
     public static Settings Load()
     {
-        try { return JsonSerializer.Deserialize<Settings>(File.ReadAllText(Path.Combine(DirectoryPath,"settings.json"))) ?? new(); }
+        try
+        {
+            string json=File.ReadAllText(Path.Combine(DirectoryPath,"settings.json"));
+            var settings=JsonSerializer.Deserialize<Settings>(json)??new();
+            using var document=JsonDocument.Parse(json);
+            if(document.RootElement.TryGetProperty("Browser",out _))
+            {
+                try{settings.Save();}
+                catch(Exception error) when(error is IOException or UnauthorizedAccessException)
+                {settings.LoadWarning="旧官网配置已在内存移除，但配置文件无法写入；请检查 settings.json 的权限后重新保存";}
+            }
+            return settings;
+        }
         catch (Exception e) when(e is IOException or JsonException) { return new(); }
     }
     public void Save() { Directory.CreateDirectory(DirectoryPath); File.WriteAllText(Path.Combine(DirectoryPath,"settings.json"),JsonSerializer.Serialize(this)); }
-}
-public static class BridgeProtocol
-{
-    public const string HostName="com.aiscreenshot.bridge";
-    public const int ChunkSize=192*1024; // Base64 occupies 256 KiB; framing stays below 1 MB.
-    public static string PipeName => "AIScreenShot." + Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(Environment.UserDomainName+"\\"+Environment.UserName)))[..16];
-    public static IEnumerable<object> Encode(SendRequest request, string id)
-    {
-        yield return new {type="begin",id,prompt=request.EffectivePrompt,length=request.Png.Length,sha256=Convert.ToHexString(SHA256.HashData(request.Png)).ToLowerInvariant()};
-        for(int offset=0,index=0;offset<request.Png.Length;offset+=ChunkSize,index++)
-            yield return new {type="chunk",id,index,data=Convert.ToBase64String(request.Png,offset,Math.Min(ChunkSize,request.Png.Length-offset))};
-        yield return new {type="commit",id};
-    }
 }

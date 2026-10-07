@@ -41,6 +41,11 @@ internal static class RuntimeDiagnostics
             var toolsEnd=tools.TransformToVisual(toolbar).TransformPoint(new Windows.Foundation.Point(tools.ActualWidth,0));
             var menuStart=panel.VisibilityMenuButton.TransformToVisual(toolbar).TransformPoint(new Windows.Foundation.Point());
             if(toolsEnd.X>menuStart.X+1)throw new InvalidOperationException("Compact toolbar overlaps the visibility menu");
+            var selector=panel.ComposerModeSelector;var sendButton=panel.ComposerSendButton;
+            var selectorPosition=selector.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point());
+            var sendPosition=sendButton.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point());
+            if(selector.ActualWidth<76||selectorPosition.X+selector.ActualWidth>root.ActualWidth||selectorPosition.Y+selector.ActualHeight>sendPosition.Y||Math.Abs(selectorPosition.X-sendPosition.X)>1||Math.Abs(selector.ActualWidth-sendButton.ActualWidth)>1)
+                throw new InvalidOperationException("Composer mode selector is clipped or not aligned above Send");
             await File.WriteAllBytesAsync(Path.Combine(output,$"floating-compact-{theme}.png"),await RenderAsync(root));
         }
         panel.ResizeForDiagnostic(PanelResizePane.Message,PanelResizeEdges.Right,width-420,0);await Task.Delay(120);
@@ -378,9 +383,22 @@ internal static class RuntimeDiagnostics
     {
         var root=(Border)window.Content;var navigation=(NavigationView)root.Child;
         var items=navigation.MenuItems.OfType<NavigationViewItem>().ToArray();
-        if(!items.Select(item=>item.Tag?.ToString()).SequenceEqual(new[]{"general","appearance","codex","chatgpt","about"}))
+        if(!items.Select(item=>item.Tag?.ToString()).SequenceEqual(new[]{"general","appearance","codex","agent","about"}))
             throw new InvalidOperationException("Settings categories are incomplete");
         var pageScroller=(ScrollViewer)((Grid)navigation.Content).Children[1];
+        navigation.SelectedItem=items.Single(item=>Equals(item.Tag,"agent"));await Task.Delay(120);
+        var agentPage=(StackPanel)pageScroller.Content;
+        var modelEditor=Descendants<TextBox>(agentPage).Single(box=>Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(box)=="Model name");
+        if(!Descendants<TextBox>(agentPage).Any(box=>Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(box)=="Base URL")||
+            Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(Descendants<PasswordBox>(agentPage).Single())!="API key")
+            throw new InvalidOperationException("Agent field labels are not professional display names");
+        string agentDraft=modelEditor.Text;modelEditor.Text="unsaved-agent-draft";
+        if(Descendants<PasswordBox>(agentPage).Count()!=1||Descendants<NumberBox>(agentPage).Count()!=1||Descendants<ToggleSwitch>(agentPage).Count()!=1)
+            throw new InvalidOperationException("Agent configuration controls are incomplete");
+        navigation.SelectedItem=items[0];navigation.SelectedItem=items.Single(item=>Equals(item.Tag,"agent"));
+        if(modelEditor.Text!="unsaved-agent-draft")throw new InvalidOperationException("Agent draft was discarded on navigation");
+        modelEditor.Text=agentDraft;
+
         var originalSize=window.AppWindow.Size;string draft=window.DefaultPromptEditor.Text;
         navigation.SelectedItem=items.Single(item=>Equals(item.Tag,"appearance"));await Task.Delay(120);
         var appearancePage=(StackPanel)pageScroller.Content;

@@ -23,6 +23,7 @@ internal static class CodexProviderTests
         await CheckBlockedWritesAsync(Check);
         await CheckPreparationFailuresAsync(Check);
         await CheckProviderAsync(Check);
+        await CheckTextOnlyAsync(Check);
         return checks;
     }
 
@@ -493,30 +494,69 @@ internal static class CodexProviderTests
         using(var provider=new CodexProviderTarget(settings,(_,_)=>new CodexRpcClient(input,output),_=>"fake.exe"))
         {
             var updates=new ConcurrentQueue<CodexReplyUpdate>();
-            var submitted=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var streamed=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var running=provider.SendWithReplyAsync(request,update=>
-            {
-                updates.Enqueue(update);
-                if(update.Phase==CodexReplyPhase.Submitted)submitted.TrySetResult();
-                if(update.Phase==CodexReplyPhase.Thinking&&update.Text=="停止等待前的正文")streamed.TrySetResult();
-            },cancellation.Token);
+            {updates.Enqueue(update);if(update.Text=="停止前的正文")streamed.TrySetResult();},cancellation.Token);
             var turn=await AcceptPreparationAsync(input,output,check,directory);
             Reply(input,turn,new {turn=new {id="turn-current"}});
-            await submitted.Task.WaitAsync(TimeSpan.FromSeconds(3));
-            input.Add(Delta("final","停止等待前的正文").GetRawText());
-            await streamed.Task.WaitAsync(TimeSpan.FromSeconds(3));
-            cancellation.Cancel();
+            input.Add(Delta("final","停止前的正文").GetRawText());await streamed.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            cancellation.Cancel();cancellation.Cancel();
+            var interrupt=await output.NextAsync();
+            check(interrupt.GetProperty("method").GetString()=="turn/interrupt"&&interrupt.GetProperty("params").GetProperty("threadId").GetString()=="thread-current"&&interrupt.GetProperty("params").GetProperty("turnId").GetString()=="turn-current","Stop interrupts exactly the acknowledged screenshot turn");
+            Reply(input,interrupt,new {});
+            check(!running.IsCompleted&&!updates.Any(update=>update.Status?.Contains("Codex 已停止")==true),"An interrupt RPC acknowledgement alone is not a stop confirmation");
+            input.Add(Terminal("interrupted").GetRawText());
             var result=await running.WaitAsync(TimeSpan.FromSeconds(3));
-            check(result.State==SendState.Sent&&!input.IsDisposed&&!output.IsDisposed,"Stopping an acknowledged turn's UI wait keeps its transport alive");
-            check(updates.Last() is {Phase:CodexReplyPhase.Unavailable,Text:"停止等待前的正文"},"Stopping the UI wait carries the latest received reply in its terminal snapshot");
-            int detachedUpdateCount=updates.Count;
-            input.Add(Delta("final","background reply").GetRawText());
-            input.Add(AgentMessage("final","background reply","final_answer").GetRawText());
-            input.Add(Terminal("completed").GetRawText());
+            check(result.State==SendState.Sent&&updates.Last() is {Phase:CodexReplyPhase.Unavailable,Text:"停止前的正文"}&&updates.Last().Status?.Contains("Codex 已停止")==true,"Confirmed interruption retains submission state and partial reply");
+            check(input.IsDisposed&&output.IsDisposed&&output.MethodCount("turn/start")==1&&output.MethodCount("turn/interrupt")==1,"Stop releases its own transport and neither repeats submission nor interruption");
+        }
+
+        using(var input=new ChannelTextReader())
+        using(var output=new ChannelTextWriter())
+        using(var cancellation=new CancellationTokenSource())
+        using(var provider=new CodexProviderTarget(settings,(_,_)=>new CodexRpcClient(input,output),_=>"fake.exe"))
+        {
+            var updates=new ConcurrentQueue<CodexReplyUpdate>();
+            var running=provider.SendWithReplyAsync(request,updates.Enqueue,cancellation.Token);
+            var turn=await AcceptPreparationAsync(input,output,check,directory);
+            cancellation.Cancel();var result=await running.WaitAsync(TimeSpan.FromSeconds(3));
+            check(result.State==SendState.Unknown&&output.MethodCount("turn/interrupt")==0,"Stop without an acknowledged turn ID stays Unknown and cannot interrupt an unrelated turn");
+            Reply(input,turn,new {turn=new {id="turn-current"}});
+            var interrupt=await output.NextAsync();
+            check(interrupt.GetProperty("method").GetString()=="turn/interrupt"&&interrupt.GetProperty("params").GetProperty("turnId").GetString()=="turn-current","A late acknowledgement still interrupts the originally submitted turn");
+            Reply(input,interrupt,new {});input.Add(Terminal("interrupted").GetRawText());
             await input.DisposedTask.WaitAsync(TimeSpan.FromSeconds(3));
-            check(updates.Count==detachedUpdateCount&&!updates.Any(update=>update.Phase==CodexReplyPhase.Completed),"Detached background turns drain without updating the stopped UI wait");
-            check(output.MethodCount("turn/start")==1&&output.MethodCount("turn/interrupt")==0,"Stopping the UI wait neither duplicates nor interrupts the native turn");
+            check(updates.Count==0&&output.MethodCount("turn/start")==1&&output.MethodCount("turn/interrupt")==1,"Late stop confirmation cannot reopen a detached UI or resubmit the image");
+        }
+
+        foreach(bool reject in new[]{true,false})
+        using(var input=new ChannelTextReader())
+        using(var output=new ChannelTextWriter())
+        using(var cancellation=new CancellationTokenSource())
+        using(var provider=new CodexProviderTarget(settings,(_,_)=>new CodexRpcClient(input,output),_=>"fake.exe",TimeSpan.FromMilliseconds(150)))
+        {
+            var updates=new ConcurrentQueue<CodexReplyUpdate>();var streamed=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var running=provider.SendWithReplyAsync(request,update=>{updates.Enqueue(update);if(update.Text=="保留正文")streamed.TrySetResult();},cancellation.Token);
+            var turn=await AcceptPreparationAsync(input,output,check,directory);Reply(input,turn,new {turn=new {id="turn-current"}});
+            input.Add(Delta("final","保留正文").GetRawText());await streamed.Task.WaitAsync(TimeSpan.FromSeconds(3));cancellation.Cancel();
+            var interrupt=await output.NextAsync();
+            if(reject)input.Add(JsonSerializer.Serialize(new {id=interrupt.GetProperty("id"),error=new {code=-32601,message="PRIVATE_CONTENT"}}));
+            else Reply(input,interrupt,new {});
+            var result=await running.WaitAsync(TimeSpan.FromSeconds(3));var last=updates.Last();
+            check(result.State==SendState.Sent&&last is {Phase:CodexReplyPhase.Unavailable,Text:"保留正文"}&&last.Status?.Contains("未确认")==true&&!last.Status.Contains("PRIVATE_CONTENT"),"Rejected or unconfirmed interruption retains text and never claims a successful stop");
+            check(input.IsDisposed&&output.MethodCount("turn/interrupt")==1&&output.MethodCount("turn/start")==1,"Unconfirmed stop is bounded and releases the owned client without retries");
+        }
+
+        using(var input=new ChannelTextReader())
+        using(var output=new ChannelTextWriter())
+        using(var cancellation=new CancellationTokenSource())
+        using(var provider=new CodexProviderTarget(settings,(_,_)=>new CodexRpcClient(input,output),_=>"fake.exe"))
+        {
+            var updates=new ConcurrentQueue<CodexReplyUpdate>();
+            var running=provider.SendWithReplyAsync(request,update=>{updates.Enqueue(update);if(update.Phase==CodexReplyPhase.Completed)cancellation.Cancel();},cancellation.Token);
+            var turn=await AcceptPreparationAsync(input,output,check,directory);Reply(input,turn,new {turn=new {id="turn-current"}});
+            input.Add(AgentMessage("final","正常完成","final_answer").GetRawText());input.Add(Terminal("completed").GetRawText());
+            check((await running.WaitAsync(TimeSpan.FromSeconds(3))).State==SendState.Sent&&updates.Last().Phase==CodexReplyPhase.Completed&&output.MethodCount("turn/interrupt")==0,"Natural completion racing with stop retains its real terminal state");
         }
 
         using(var input=new ChannelTextReader())
@@ -551,9 +591,28 @@ internal static class CodexProviderTests
         }
     }
 
-    private static async Task<JsonElement> AcceptPreparationAsync(ChannelTextReader input,ChannelTextWriter output,Action<bool,string> check,string directory,bool rejectName=false)
+    private static async Task CheckTextOnlyAsync(Action<bool,string> check)
     {
-        var thread=await AcceptThreadStartAsync(input,output,check,directory);
+        string directory=Directory.GetCurrentDirectory();
+        using var input=new ChannelTextReader();using var output=new ChannelTextWriter();
+        int clients=0;
+        using var provider=new CodexProviderTarget(new Settings(),(_,_)=>{clients++;return new CodexRpcClient(input,output);},_=>"fake.exe");
+        var request=new SendRequest([],"  你好\n继续对话  ",new Workspace("text diagnostic",directory));
+        check((await provider.SendWithReplyAsync(request with {Prompt=" \r\n\t"},_=>{},CancellationToken.None)).State==SendState.Failed&&clients==0,"Empty text-only Codex input fails before creating a provider process");
+        var updates=new ConcurrentQueue<CodexReplyUpdate>();
+        var running=provider.SendWithReplyAsync(request,updates.Enqueue,CancellationToken.None);
+        var turn=await AcceptPreparationAsync(input,output,check,directory,configuration:new {model="text-only"},models:new {data=new[]{new {model="text-only",isDefault=true,inputModalities=new[]{"text"}}}});
+        var parts=turn.GetProperty("params").GetProperty("input");
+        check(parts.GetArrayLength()==1&&parts[0].GetProperty("type").GetString()=="text"&&parts[0].GetProperty("text").GetString()==request.Prompt,"Text-only Codex requests accept text models and submit only the manual prompt");
+        Reply(input,turn,new {turn=new {id="turn-current"}});
+        input.Add(Delta("text-reply","你好").GetRawText());input.Add(Terminal("completed").GetRawText());
+        check((await running.WaitAsync(TimeSpan.FromSeconds(3))).State==SendState.Sent&&updates.Last() is {Phase:CodexReplyPhase.Completed,Text:"你好"},"Text-only Codex replies use the normal streamed response path");
+        check(output.MethodCount("turn/start")==1,"A text-only Codex request is submitted once");
+    }
+
+    private static async Task<JsonElement> AcceptPreparationAsync(ChannelTextReader input,ChannelTextWriter output,Action<bool,string> check,string directory,bool rejectName=false,object? configuration=null,object? models=null)
+    {
+        var thread=await AcceptThreadStartAsync(input,output,check,directory,configuration,models);
         Reply(input,thread,new {thread=new {id="thread-current"}});
         var name=await output.NextAsync();
         check(name.GetProperty("method").GetString()=="thread/name/set"&&name.GetProperty("params").GetProperty("threadId").GetString()=="thread-current","Provider assigns a title only to its own acknowledged thread");
@@ -566,9 +625,9 @@ internal static class CodexProviderTests
         return turn;
     }
 
-    private static async Task<JsonElement> AcceptThreadStartAsync(ChannelTextReader input,ChannelTextWriter output,Action<bool,string> check,string directory)
+    private static async Task<JsonElement> AcceptThreadStartAsync(ChannelTextReader input,ChannelTextWriter output,Action<bool,string> check,string directory,object? configuration=null,object? models=null)
     {
-        await AcceptReadinessAsync(input,output,check,directory);
+        await AcceptReadinessAsync(input,output,check,directory,configuration,models);
         var thread=await output.NextAsync();
         var parameters=thread.GetProperty("params");
         check(thread.GetProperty("method").GetString()=="thread/start"&&parameters.GetProperty("cwd").GetString()==directory,"Provider creates a thread in the explicitly selected working directory");

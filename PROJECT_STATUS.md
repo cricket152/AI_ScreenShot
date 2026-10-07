@@ -1,6 +1,16 @@
 # 项目状态
 
 ## 已完成
+- 2026-10-07 用户明确授权将当前 Agent 相关修改合并为一次本地 Git 提交：官网链路/配置移除、OpenAI compatible Agent 与 DPAPI 配置、发送模式/专业标签/回复模型、Codex turn 中断、无截图纯文本发送，以及相关测试、发布脚本和文档。沿用下述最终验证记录，保留真实服务/深色预览的验收限制；构建产物、便携包、临时诊断及用户密钥不纳入 Git，不 push。
+- 2026-10-07 支持无截图纯提示词发送：底部发送与工具栏 Codex / Agent 随非空输入实时启用，只有空白且无截图时禁止发送；纯文本用户气泡不创建图片控件，两个请求体均省略图片字段。带截图时仍沿用默认提示词和每目标防重发；无截图时默认提示词不自动补全，当前面板内同目标的已提交/Unknown 提示词保留防重复限制，不同新提示词可继续发送，Failed 可手动重试。Codex 纯文本请求不要求图片模型，仍要求有效工作目录；Agent 无 Codex 目录依赖。每次请求仍独立，没有新增历史上下文、tools 或知识库。
+- 本轮 scripts/verify.ps1 exit 0：App 0 warning / 0 error，826 项断言通过，新增无图有效内容、默认提示词隔离、Agent 无图片 JSON、Codex 纯文本模型/无图片 input 与回复回归。dist/AIScreenShot-win-x64-text-chat 经 publish.ps1 生成，实际 EXE --floating-ui-test exit 0：无截图 Codex/Agent 原生 Send Invoke、TextChanged 启用、空白禁用、不同新提示词、恢复旧提示词/模式切换的 Sent/Unknown 锁、Failed 可重试和无目录 Agent 模型标记通过；既有截图/模型标记/布局检查保留。首次诊断未等待 WinUI 异步 TextChanged 而失败，诊断现等待输入事件及 Invoke 派发后验证，最终通过。App/Core DLL、App.xbf SHA-256 与构建一致，git diff --check 通过。本轮无真实模型调用、用户截图/剪贴板访问、新依赖、commit/push；既有深色预览问题保留。
+- 2026-10-07 Agent 回复气泡右上角增加模型名称：优先使用 SSE / JSON 响应的 model，没有有效名称时使用本次请求的 Model name；流式/部分回复保留标记，长名称省略并可悬停查看，历史气泡不跟随设置变化。Codex provider 的“停止等待”现发送一次公开 turn/interrupt，精确限定本次 threadId/turnId，并等待 interrupted 终态；保留部分正文，15 秒未确认/拒绝/断线均明确显示停止未确认。回执未到时先返回 Unknown，晚到 ID 后仍中断该次 turn；不猜测 ID、不重发、不影响其他会话。
+- 本轮 scripts/verify.ps1 exit 0：App 0 warning / 0 error，806 项核心/协议断言通过。dist/AIScreenShot-win-x64-agent-stop 经 publish.ps1 生成，实际 EXE --floating-ui-test exit 0，原生模型标签、模式切换及既有布局/状态检查通过；App/Core DLL、App.xbf SHA-256 与构建一致，git diff --check 通过。独立生产 CodexProviderTarget 生成图实测：提交后 3 秒触发与停止按钮相同的取消，服务端 interrupted 终态确认，exit 0。另一次首段流式正文测试等待 120 秒无正文而未通过该目标，随后中断仍获确认；真实流式输出中停止与部分正文保留尚未实测，模拟协议已覆盖。无用户截图/提示词重发，无内容/密钥日志，无新增依赖、commit/push。
+- 2026-10-07 底部“发送”按钮上方增加原生 Codex / Agent ComboBox：只控制底部发送路由，默认 Codex，在当前面板生命周期内跨截图/收起保留选择；发送期间禁用，按钮按所选目标的提交状态启用，Sent / Unknown 不因切换模式而解锁。Agent 不依赖 Codex 目录。设置显示名称改为 Model name / Base URL / API key，验证/错误提示同步，持久化键兼容。
+- 本次 scripts/verify.ps1 exit 0：App 0 warning / 0 error，756 项核心断言通过。dist/AIScreenShot-win-x64-agent-mode 经 publish.ps1 生成，实际 EXE --floating-ui-test exit 0：两模式原生按钮 Invoke、目标独立锁定/新截图保留/发送中禁用、420px 双主题选择器与按钮对齐、设置标签/520px 双主题布局检查通过。修复旧拖动诊断只允许一个 TextBox 的假设，现逐个验证文本控件及新增模式选择器不能启动移动。App/Core DLL、App.xbf SHA-256 与验证构建一致，git diff --check 通过；仅生成图与注入发送，无真实模型调用、无新增依赖、无 commit/push。
+- 2026-10-07 移除 ChatGPT 官网发送链路：BrowserBridge、BridgeProtocol、浏览器扩展、Native Host、专用注册/卸载/宿主部署脚本和测试、ChromeGPT 通知与许可证；构建/发布不再依赖这些组件。工具栏和设置分类改为 Agent，旧 Browser 字段首次加载迁移移除，其余用户设置兼容。
+- Agent 基础链路：OpenAI compatible `/chat/completions`，PNG data URL + 有效提示词；原生设置支持 model_name / base_url / apikey、流式开关和超时，独立保存、当前草稿 `/models` 连接检测。key 由当前 Windows 用户 DPAPI 加密保存；远端错误正文不回显、不写内容日志。消息面板显示用户气泡及 Agent 流式 / JSON Markdown 回复，支持停止等待、部分正文保留和失败 / Unknown 防重发。本阶段是独立截图分析，无 tools / 知识库 / 多轮上下文。
+- 本轮核心/网络检查通过：scripts/verify.ps1 exit 0，App 0 warning / 0 error，756 项断言（含 DPAPI、兼容 API 请求体、SSE / JSON、取消/错误/Unknown 和真实 loopback HTTP 往返）。原生设置草稿/双主题/520px 窄窗、Agent 回复及断流正文/防重发检查通过。最终 dist/AIScreenShot-win-x64-agent 经 publish.ps1 生成，实际 EXE --floating-ui-test exit 0；App/Core DLL、App.xbf SHA-256 与验证构建一致，新包无官网桥接文件，git diff --check 通过。修正视觉检查发现的 PasswordBox 过窄问题，宽度现与文本字段一致。无真实模型调用、无生产依赖变更、无本轮 commit/push。
 - 2026-10-07 用户明确要求归档本轮修改：提交范围为双面板透明宿主、公共底板/裁切移除、外围白框和阴影间隙修复、可调阴影/材质混色、相关回归及文档；构建产物、便携包和临时诊断不纳入 Git，未 push。验证结果与桌面验收限制保留在下述记录中。
 - 2026-10-07 修复两栏外围方形白框和阴影间隙：受控色板确认旧版最左窗口边缘为白色 255/255/255，样式重新出现 WS_DLGFRAME / WS_EX_WINDOWEDGE。PanelInputTransparency 在 WM_STYLECHANGING 持续过滤 frame / edge，WM_NCCALCSIZE 保持整个 HWND 为客户区，首次安装重新计算框架；不禁用 DWM alpha，不使用裁切。FloatingPanelWindow 移除面板承载 Border 的 1px 透明布局边，材质、色层、向内绘制的主题描边和外围阴影共享同一圆角外缘；边框关闭/开启时均无该空隙，保留布局 token、拖动/缩放/动画与业务逻辑。
 - 最终 scripts/verify.ps1 exit 0：App / Native Host 0 warning / 0 error，719 核心断言、15 扩展测试、3 JS 语法检查通过。实际构建和 dist/AIScreenShot-win-x64-pane-edges 的 --floating-ui-test 均 exit 0：208 个双色 DWM 采样覆盖 HWND 四条外沿/留白/角外/间隙并尝试重新恢复原生 frame；浅色/深色、边框关闭/0.5/1/3px 的 16 组直边与 64 组圆角检查通过。包经 scripts/publish.ps1 生成，App/Core DLL 与 App.xbf SHA-256 匹配验证构建；git diff --check 通过。诊断只采样自有 Win32 色板覆盖范围，不保存桌面图像、不访问系统剪贴板或真实发送；旧包与既有修改保留，无本轮 commit/push。
@@ -69,14 +79,18 @@
 - 已有功能：托盘、全局快捷键、矩形多屏截图、PNG 保存、独立目标发送、设置、MV3 扩展和分块/长度/哈希校验。历史版本曾实测读取 22 个唯一 Codex 工作区并确认生成测试图提交；不代表本次回复读取或剪贴板修复的端到端验收。
 
 ## 未完成
+- 新版纯文本发送的真实兼容服务与完整鼠标操作验收待用户执行；协议测试检查无图片字段、文本模型与回复，原生诊断使用注入发送，不将它们声称为真实模型调用。
+- 本轮真实 Codex provider 中断后的完整鼠标操作验收待用户执行；模拟协议覆盖正常中断、重复取消、晚到回执、拒绝、无终态超时和自然完成竞态，原生 UI 使用注入回调验证。真实 Agent 模型名称需要用户配置的兼容接口验收。
+- 用户实际兼容接口与图片模型尚未提供配置，真实服务调用待用户设置后验收；tools、知识库及多轮上下文由后续讨论决定。
 - 实际 Windows 应用主题/强调色变化通知、系统高对比度切换的桌面验收。原生三模式切换、当前系统调色板与未覆盖 HighContrast 资源的检查已通过，不将其声称为实际系统设置切换。
 - 新版材质的后方窗口像素合成、透明效果关闭/省电/高对比度降级、系统动画关闭、真实鼠标交互及混合 DPI 多屏验收。双主题/窄窗预览、原生切换、失焦 IsInputActive 和本机 Active 状态已通过；RenderTargetBitmap 不包含系统 backdrop，设置预览临时使用主题 fallback，不能作为后方画面的像素实测。
 - 生产 provider 的真实生成图、流式正文和终态已通过；新版从实际框选、目录选择到消息面板回显的完整用户操作，以及回复期间手动切换 Codex 桌面聊天的联动仍待桌面验收。原生 UI 注入回调和后台真实发送分别通过，不声称已经共同完成此操作验收。
 - 旧 UIA ready-fix 的送达及真实完成页只读解析证据保留为历史诊断，正常入口已转 provider，不再将旧桌面发送全过程作为新版验收路径。
 - 实际鼠标移动两栏、拖动悬浮球与两栏四边/四角缩放、贴边、混合 DPI 跨屏、屏幕边缘面板、截图拖动顺滑程度、保存对话框、高对比度和剪贴板并发修改的桌面验收。移动/缩放策略与真实 WinUI 生产回调通过，不代表真实鼠标及多屏操作验收。
-- Chrome 重新加载原扩展后的自动连接、浏览器先启动/程序后启动、程序重启、worker 休眠恢复，以及官网图片上传/发送。Node 模拟测试和 Host 握手不能替代真实浏览器验收。
 
 ## 当前 Bug
+- 深色 RenderTargetBitmap 预览中的部分按钮/气泡出现白块、文字不可见，上一版 agent-mode 的 floating-Dark.png 同样可复现，本轮未修改该既有主题/预览问题。实际系统 Acrylic 不包含在该预览里；原生布局/标签断言通过不能替代深色桌面观感验收。
+- 本轮无已知代码检查失败；旧 Native Host bin/obj 及历史 dist 包暂保留。清理旧构建目录的递归删除命令被自动审批策略拒绝，工具未提供进一步理由。源码与新包已移除官网组件，不把历史包视为当前版本。
 - 用户报告的外围白框与阴影间隙已定位并修复；最终原生包、208 个外围像素与 16/64 组直边/圆角检查通过。实际 Acrylic 后方应用观感、分数 DPI 动画 / 多屏 / HDR、高对比度与真实鼠标点击穿透仍需验收，不把色板检查当作全面桌面视觉测试。
 - 扩展边缘诊断第一次完整运行中，既有主题/强调色预览焦点断言失败一次；原因未确认，未删除或放宽断言，补充前后 HWND 信息。最终构建及实际便携包完整复测均通过，未再次复现，保留观察。
 - 本轮边框与图标在已执行的编译/原生诊断范围内无未解决失败。实际系统色/高对比度切换、多屏、Explorer 图标缓存及真实托盘展示仍待桌面验收，不以 HICON 加载代替视觉验收。
@@ -87,10 +101,13 @@
 - 旧 UIA 报告“Codex 已回复但仍正在发送，切换后 Unknown”已再次在真实完成页复现为本地化星期时间被拼入用户正文，提示词匹配失败；本轮已修复并通过生产确认/回复只读观察。新请求从截图发送到流式更新和完成的全过程仍需新版实际验收，未将合成基线验证当作真实发送验收。
 - 此前 0x800401D3、0x80040201 的逐格式备份/控件重获取修复保留；具体原始剪贴板格式未识别，不将本次单次送达当作所有格式验收。
 - 用户报告的框选拖动卡顿已修复全屏同步合成路径并通过生成像素/性能检查；真实多屏顺滑程度和闪动/错位仍待验收。
-- 旧 UIA 诊断仍受 Codex 可访问性结构变化影响；正常 provider 使用公开事件确认提交/终态，读取中断保留正文并显示状态。原生 Markdown 支持已列常见格式，暂不支持数学公式、远程图片或完整 CommonMark；HTML 不执行。ChatGPT 发送仅显示状态，不在面板回显对话；本次尚未执行真实官网图片上传/发送验收。
-- 旧 Codex LocalCache 部署文件保留，不作为正式 Host 依赖；Codex 内 Test-Path 不能证明 Chrome 可见，应使用 -VerifyOnly 检查。
+- 旧 UIA 诊断仍受 Codex 可访问性结构变化影响；正常 provider 使用公开事件确认提交/终态，读取中断保留正文并显示状态。原生 Markdown 支持已列常见格式，暂不支持数学公式、远程图片或完整 CommonMark；HTML 不执行。Agent 在面板回显回复，真实服务需用户配置后验收。
 
 ## 最近修改文件
+- 纯文本发送：src/ScreenShot.Core/Contracts.cs（有效内容/仅带截图使用默认提示词）、AgentClient.cs（可选图片请求）、AgentSettings.cs（模型说明）；src/ScreenShot.App/FloatingPanelWindow.cs（输入启用、无图气泡及按提示词防重复）、CodexProviderTarget.cs、CodexProviderModelPolicy.cs（可选图片/按请求检查图片能力）、SettingsWindow.cs（支持纯文本模型的说明）；App.xaml.cs（空白/两模式原生 Invoke/新提示词/Unknown/Failed 回归）；tests/ScreenShot.Tests/AgentTests.cs、CodexProviderTests.cs、PromptTests.cs；README.md、docs/UI_DESIGN.md、PROJECT_STATUS.md。
+- 模型标记与生成中断：src/ScreenShot.Core/AgentClient.cs（SSE / JSON model 元数据与请求名称回退）；src/ScreenShot.App/FloatingPanelWindow.cs（原生右侧标记、tooltip/无障碍、停止按钮防重复）、CodexProviderTarget.cs（当前 turn 中断与有界终态确认）；tests/ScreenShot.Tests/AgentTests.cs、CodexProviderTests.cs（响应元数据/取消竞态回归）；App.xaml.cs（原生标签/双主题预览）；README.md、docs/UI_DESIGN.md、PROJECT_STATUS.md（操作、存储与验证记录）。
+- 本次模式切换与专业名称：FloatingPanelWindow.cs、SettingsWindow.cs、App.xaml.cs、RuntimeDiagnostics.cs；src/ScreenShot.Core/AgentSettings.cs、AgentClient.cs（展示文案）；README.md、docs/UI_DESIGN.md、PROJECT_STATUS.md。
+- Agent：src/ScreenShot.Core/AgentSettings.cs、AgentClient.cs、Contracts.cs；App.xaml.cs、FloatingPanelWindow.cs、ToolbarWindow.cs、SettingsWindow.cs、RuntimeDiagnostics.cs；tests/ScreenShot.Tests/AgentTests.cs、Program.cs、PromptTests.cs、AppearanceTests.cs；scripts/verify.ps1、publish.ps1；README.md、docs/UI_DESIGN.md、THIRD_PARTY_NOTICES.md、PROJECT_STATUS.md。删除旧官网专用组件见本轮 diff。
 - 本轮外沿修复：src/ScreenShot.App/PanelInputTransparency.cs（持续无框样式/全客户区）；FloatingPanelWindow.cs（材质/色层/描边共同外缘）；Native.cs（DWORD STYLESTRUCT）；RuntimeDiagnostics.cs（外围/直边/圆角受控像素、绘制边界/样式检查、焦点失败详情）；README.md、docs/UI_DESIGN.md、PROJECT_STATUS.md。
 - 移除底板：FloatingPanelWindow.cs、SettingsWindow.cs、PanelAppearance.cs、AdjustableBackdrop.cs；新增 TransparentPanelBackdrop.cs、PanelGeometry.cs、PanelInputTransparency.cs，移除 PanelWindowRegion.cs；Native.cs、RuntimeDiagnostics.cs、App.xaml.cs、AppearanceTests.cs 与 README / UI_DESIGN / PROJECT_STATUS 同步。
 - 白边/阴影/材质混色：src/ScreenShot.App/PanelWindowRegion.cs（材质内缘/圆角区域与 alpha）；PanelShadowWindow.cs、Native.cs（独立阴影 HWND、BGRA 上传与资源释放）；FloatingPanelWindow.cs（材质混色及阴影显隐/位置/过渡同步）；AdjustableBackdrop.cs、AppThemeController.cs（tint/fallback 混色及高对比度）；SettingsWindow.cs（阴影/混入控件与预览持久化）；RuntimeDiagnostics.cs（实际 region / HWND / tint / 命中及性能）；src/ScreenShot.Core/PanelAppearance.cs、PanelShadowMask.cs、tests/ScreenShot.Tests/AppearanceTests.cs（配置/边界/纯内存阴影回归）；README.md、docs/UI_DESIGN.md、PROJECT_STATUS.md。
@@ -115,18 +132,24 @@
 - README.md、PROJECT_STATUS.md：新版操作、布局、回复读取范围与实际验收状态。
 
 ## 已确认设计决策
+- 无图非空输入视为明确的纯文本请求，不使用截图默认提示词，不添加空 data URL 或占位图；当前截图存在时仍一并发送，带截图的提交锁规则保持不变。纯文本按目标与去除首尾空白的提示词记录当前面板内的提交锁，实际正文原样发送；新提示词是新的独立请求，不自动复用上下文，不自动重发旧请求。
+- 回复模型标记是每次 Agent 请求的元数据，优先信任兼容接口返回的有效 model，未提供则使用请求配置；不自动识别或改写服务端模型。Codex 中断以公开 turn/interrupt 和匹配终态为证据，RPC 成功本身不算停止确认；终态恰好完成仍显示完成。不改变提交状态，不对当前图片解锁重发。Agent 的取消只结束本地 HTTP/读取，不能保证远端停止。
+- Agent 设置仍保存到当前用户 %LOCALAPPDATA%/AIScreenShot/settings.json；model_name、base_url、Stream、TimeoutSeconds 为明文，apikey_protected 是当前 Windows 用户 DPAPI 密文的 Base64。ApiKey 运行时属性不序列化；请求认证/设置编辑时会存在内存明文，整个 JSON 未加密，不写内容/密钥日志。
+- 底部发送模式独立于工具栏目标按钮；默认 Codex，只在当前面板内存保留，不增加持久化字段。窄右侧操作区使用原生 ComboBox，96px 宽度与发送按钮对齐，保留键盘与无障碍名称。设置专业显示名称不改变 API / JSON 字段。
+- 旧 Codex UIA 的 ChatGPT 进程名/助手角色兼容规则用于识别桌面 Codex 宿主，保留；不属于官网发送。
+- 放弃官网发送与浏览器桥接，Agent 使用 OpenAI compatible Chat Completions；API key 不明文保存，不自动重试或降级重发截图，不跟随 HTTP 重定向。请求正文与图片仅在内存，远程只允许 HTTPS、本机允许 HTTP；设置页连接检测只读模型列表。截图内指令作为待分析数据，无工具或文件操作。
 - 当前取消公共底板，只绘制两个原生圆角面板；不得恢复 HWND region 或额外视觉裁切。透明宿主启用 DWM alpha，Region=null，不是第三块材质；阴影与命中只使用面板测量值，缩放入口只属于两栏。保留独立材质和统一可调强调色混入，默认 18%，正文不做整体 opacity 染色。
 - 两栏外缘使用原始强调色，其他控件/正文维持原生主题资源；面板承载 BorderThickness 为 0，材质/色层/主题描边/阴影共用外缘，描边向内叠加，不改变内容布局与命中几何。无边框时为阴影紧贴材质，有边框时为阴影紧贴描边、描边覆盖材质边缘。原生宿主持续禁用 frame / edge 位，客户区占据整个 HWND，不改变 DWM alpha。高对比度使用 Microsoft.UI.System.ThemeSettings 与系统主题刷，关闭时解除事件。边框默认 1px，粗细随 DPI 缩放，关闭不丢失宽度配置。
 - 应用主题与强调色为 UI 外观字段，默认跟随系统；系统模式读取 UISettings 并将实际明/暗写到各窗口根，监听系统颜色变化，不修改 Windows 设置。自定义颜色仅接受不透明 RGB，使用原生控件及窗口作用域 Light/Dark 资源，高对比度继续使用系统色；主按钮文字优先可读，正文和材质维持中性色。全部窗口共享外观草稿，保存后持久化，关闭设置撤销未保存草稿。
 - 图标先生成候选，用户本轮明确要求替换程序图标后接入；原图及提示词保留，可执行文件、窗口/任务栏、托盘和悬浮入口使用同一已确认设计。
 - 不再保留隐藏底板开关或公共底板材质，旧 HWND region 方案已废弃。面板过渡默认开启；小工具条约 202 逻辑像素，保留菜单箭头，消息栏不随之收窄；仅小工具条显示时 HWND 收窄，扩展恢复正常宽度。动画使用 Motion token 和原生 Storyboard，扩展始终固定左端、完成后恢复 Stretch；两栏退场与阴影同步，快速切换冻结当前值再重定向。应用/系统禁用动画即时完成，截图前同步隐藏。Windows 在主动隐藏已激活窗口后转移焦点属于原生行为，恢复时不抢回焦点。
 - 参考 DeskBox 的 NavigationView、统一设置行、Capsule 及可调控制器设计模式，使用现有 WinUI / Windows App SDK 独立实现，无新依赖或源码/资源复制。共享 ResourceDictionary 使用 ThemeResource 和原生按钮模板。设置窗口使用 Mica；悬浮两栏使用独立 Desktop Acrylic（后方当前可见桌面内容），IsInputActive 与真实焦点分离，仍遵循系统材质降级。两组均选择透明色层即可关闭面板模糊。外观保存独立于业务字段校验，关闭设置撤销外观草稿；常规保存/快捷键恢复/目录即时保存/连接检测保持原流程。settings.json 保留兼容的 PanelAppearance 字段。
-- 面板仍为同一个无标题栏 WinUI 窗口，正常两块 surface 共享宽度并一起移动，工具栏缩小时消息宽度保留；工具栏空白处、消息标题和非滚动区空白背景用于移动，边缘/角用于缩放，控件与可选文本保留原有操作。本次运行内保留手动位置，不将位置持久化为设置。顶部外侧与 Toolbar Top/顶部角改变整体高度，其余栏边缘分别调整高度。只使用一个 Button + 原生 MenuFlyout，菜单提供两栏“隐藏/显示”和工具栏“缩小/扩展”；工具栏可见时按钮在其右端，隐藏时同一个按钮移至消息标题右端，工具栏尺寸项暂禁用，不产生额外箭头或无恢复入口的空窗口。菜单及拖动入口参考 Astryx 的短动作菜单、控件操作隔离和无障碍提示约定，仅借鉴交互，不增加依赖。拖动使用真实鼠标左键捕获与屏幕坐标累计位移，不固定坐标定位控件。底部发送与工具栏 Codex 复用同一发送/防重发流程。ChatGPT 保留既有官网上传提交流程，默认提示词与旧设置/API 兼容。
+- 面板仍为同一个无标题栏 WinUI 窗口，正常两块 surface 共享宽度并一起移动，工具栏缩小时消息宽度保留；工具栏空白处、消息标题和非滚动区空白背景用于移动，边缘/角用于缩放，控件与可选文本保留原有操作。本次运行内保留手动位置，不将位置持久化为设置。顶部外侧与 Toolbar Top/顶部角改变整体高度，其余栏边缘分别调整高度。只使用一个 Button + 原生 MenuFlyout，菜单提供两栏“隐藏/显示”和工具栏“缩小/扩展”；工具栏可见时按钮在其右端，隐藏时同一个按钮移至消息标题右端，工具栏尺寸项暂禁用，不产生额外箭头或无恢复入口的空窗口。菜单及拖动入口参考 Astryx 的短动作菜单、控件操作隔离和无障碍提示约定，仅借鉴交互，不增加依赖。拖动使用真实鼠标左键捕获与屏幕坐标累计位移，不固定坐标定位控件。底部发送与工具栏 Codex 复用同一发送/防重发流程。原官网链路现已移除；Agent 直接调用用户配置接口，默认提示词保持兼容。
 - Markdown 使用纯 .NET 解析和原生 RichTextBlock/Run/Hyperlink/ScrollViewer，不使用 WebView、不拉取远程图片、不执行 HTML；仅开放合法 HTTP(S) 链接，常见块/行内语法可逐步渲染。80ms 内只渲染最新流式快照，普通最终 Text 立即刷新；收起/卸载不会重新打开窗口。
-- 用户明确选择“直接用 provider，在截图工具消息栏显示回复，工作目录由我选择”，后续报告期望 Codex 中存在新聊天；正常请求现创建独立持久 thread（ephemeral=false）并命名，不依赖桌面当前聊天。未指定 CLI 时优先桌面内置版本；沿用其模型/登录，经公开 account/read、config/read 和 model/list 预检，不读登录令牌。准备/本地回执各有 90 秒期限，回复读取无固定期限；连接检测 30 秒。只读 sandbox 与 never 批准，不放宽权限或改变 CLI 全局配置；正常 Codex 发送不访问剪贴板，ChatGPT 路径不变。
+- 用户明确选择“直接用 provider，在截图工具消息栏显示回复，工作目录由我选择”，后续报告期望 Codex 中存在新聊天；正常请求现创建独立持久 thread（ephemeral=false）并命名，不依赖桌面当前聊天。未指定 CLI 时优先桌面内置版本；沿用其模型/登录，经公开 account/read、config/read 和 model/list 预检，不读登录令牌。准备/本地回执各有 90 秒期限，回复读取无固定期限；连接检测 30 秒。只读 sandbox 与 never 批准，不放宽权限或改变 CLI 全局配置；正常 Codex 与 Agent 发送不访问剪贴板。
 - .NET 10 / WinUI 3 / Windows App SDK / Win32 / FlaUI.UIA3；原生 Windows 桌面控件，借鉴 Astryx 的图标提示、状态与无障碍约定，不引入 Web UI 或生产依赖。
 - 默认 52 逻辑像素入口，工具栏负责操作，大消息栏目负责内容；用户气泡左侧、Codex 气泡右侧。本工具的图片/提示词/回复只保留在内存，不写入内容日志；Codex 自身按普通持久聊天保存，截图工具不访问其内部数据库。
-- 点击 Codex 就退出截图状态并保留面板和当前图片，发送/确认/回复都不隐藏面板。已提交或未知目标禁止对当前图片重发；只有实际提交证据才能标为 Sent。停止等待只取消本工具的流程，不取消或重发 Codex 任务；无固定回复截止时间，等待阶段不改变前台窗口。
+- 点击 Codex 就退出截图状态并保留面板和当前图片，发送/确认/回复都不隐藏面板。已提交或未知目标禁止对当前图片重发；只有实际提交证据才能标为 Sent。正常 provider 模式停止等待会请求中断本次 Codex turn，旧 UIA 诊断仍只取消本工具流程；无固定回复截止时间，等待阶段不改变前台窗口。
 - 欢迎页无消息滚动区属于正常状态；只在可隔离侧栏的主内容区域读取聊天，输入框与消息区分别定位。新建聊天必须实际可确认空草稿且无旧消息/附件，不覆盖用户草稿。
 - 占位提示仅在公开 RawView 证明完整展示分支、空段及稳定值时按空草稿读取，不依赖语言白名单或 Value==Name。图片附件确认仅使用相同工作区新聊天草稿的唯一附件动作，不能使用侧栏或全窗口同文标签。
 - 不依赖 Process.MainWindowHandle 定位 Codex；仅在目标进程可见顶级窗口中匹配工作区动作，多个匹配目标明确停止。主内容布局祖先可从输入框 Parent 链恢复，仍需通过唯一输入框和消息身份校验，不退回全窗口读取。
@@ -134,10 +157,9 @@
 - 截图基于开始时冻结的虚拟桌面，统一物理像素坐标，保持双缓冲局部绘制。正常入口使用新面板；旧工具栏仅保留在原有运行诊断。
 - 剪贴板仅恢复可读格式，单格式 CLIPBRD_E_BAD_DATA 不阻塞其他格式，其他读取错误仍传递，非空且全部不可读时停止；不覆盖发送期间的用户修改。
 - 剪贴板占用仅在单次读/写/固化/恢复阶段有界重试；每次核对 sequence，保持 UI 同步上下文。成功写入、粘贴和提交均不重放；恢复不使用已取消的发送 token。资源保留与恢复授权分开，owner 未变不能作为覆盖已变化 sequence 的依据。
-- Native Host 名 com.aiscreenshot.bridge；正式文件在宿主真实 LocalAppData 按完整运行文件指纹部署，保留旧版、不覆盖运行文件，无需管理员权限或降低安全设置。
-- 实际 Chrome 扩展 ID 为 dmcdjpekhmjmcbjcaiillldpekdopocd，注册应使用浏览器实测 ID。alarms 不新增网页权限，重连不重放业务任务，无法修复错误注册。
 
 ## 后续计划
+- 使用 dist/AIScreenShot-win-x64-text-chat 验收无截图纯提示词发送、底部模式切换、模型标记与 Codex 停止生成，并配置真实接口，验收文本 / 截图 → API → 面板回复；后续与用户讨论 tools、知识库与服务自身的具体场景。
 - 使用已生成并验证的 dist/AIScreenShot-win-x64-pane-edges，退出托盘旧实例后验收两块面板、外围无白框、阴影紧贴、混色及多屏鼠标操作；观察是否再次出现设置预览焦点断言。保留 two-pane / shadow-tint 和所有旧包，无本轮 commit/push。
-- 完成真实 Codex 回复与多屏桌面验收；Chrome 重新加载原扩展后验证自动连接，再验证官网发送。
+- 完成真实 Codex 回复与多屏桌面验收；Agent 配置真实接口后验证图片分析与流式输出。
 - 此前本地提交 cc4d1d9 包含原生面板、Codex provider/持久会话及旧修复，七项界面优化/顶部缩放/唯一显隐菜单/面板移动已在此前用户授权下合并为一次本地提交。本轮 Fluent UI、可调材质/过渡/底板修复、主题/边框与已确认图标按用户 2026-10-06 明确要求纳入本地 Git 提交；未 push。构建产物、便携包与临时诊断不纳入仓库。

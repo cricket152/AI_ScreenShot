@@ -18,18 +18,19 @@ internal sealed class FloatingPanelWindow : Window
 {
     private readonly App app;
     private readonly Button codex=ActionButton("Codex","\uE756","发送截图到 Codex");
-    private readonly Button chatgpt=ActionButton("ChatGPT","\uE8F2","发送截图到 ChatGPT");
+    private readonly Button agent=ActionButton("Agent","\uE8F2","发送截图到 Agent");
     private readonly Button copy=ActionButton("复制","\uE8C8","复制截图");
     private readonly Button save=ActionButton("另存为","\uE74E","将截图另存为 PNG");
     private readonly Button more=ActionButton("更多","\uE712","更多操作");
     private readonly Button send=new(){MinWidth=76,VerticalAlignment=VerticalAlignment.Bottom};
+    private readonly ComboBox composerMode=new(){ItemsSource=new[]{"Codex","Agent"},SelectedIndex=0,Width=96,MinHeight=28,Height=28,FontSize=12,Padding=new Thickness(8,0,6,0)};
     private readonly Button paneMenuButton=new(){Content=UiDesign.Icon("\uE70D")};
     private readonly MenuFlyout paneMenu=new();
     private readonly MenuFlyoutItem toolbarVisibilityItem=new(),messageVisibilityItem=new(),toolbarSizeItem=new();
     private readonly Button capture=new(){HorizontalAlignment=HorizontalAlignment.Left};
     private readonly DropDownButton workspace=new(){Content="选择工作区",MaxWidth=204,VerticalAlignment=VerticalAlignment.Center};
-    private readonly TextBox prompt=new(){PlaceholderText="输入提示词，留空使用默认提示词",AcceptsReturn=true,TextWrapping=TextWrapping.Wrap,MinHeight=64,MaxHeight=100,MaxLength=16000};
-    private readonly TextBlock status=new(){Text="就绪 · 先截取一张图片"};
+    private readonly TextBox prompt=new(){PlaceholderText="输入提示词；有截图时可留空使用默认提示词",AcceptsReturn=true,TextWrapping=TextWrapping.Wrap,MinHeight=64,MaxHeight=100,MaxLength=16000};
+    private readonly TextBlock status=new(){Text="就绪 · 输入提示词或截取屏幕"};
     private readonly TextBlock dimensions=new(){Text="还没有截图",VerticalAlignment=VerticalAlignment.Center,TextTrimming=TextTrimming.CharacterEllipsis};
     private readonly ProgressRing progress=new(){Width=16,Height=16,IsActive=false,Visibility=Visibility.Collapsed};
     private readonly Button stopWaiting=new(){Content="停止等待",Visibility=Visibility.Collapsed};
@@ -39,9 +40,10 @@ internal sealed class FloatingPanelWindow : Window
     private readonly Image draftImage=new(){Width=64,Height=40,Stretch=Stretch.Uniform};
     private readonly StackPanel empty=new(){Spacing=UiDesign.Number("SS.Spacing.M"),HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center};
     private readonly HashSet<string> submittedTargets=[];
+    private readonly HashSet<(string Target,string Prompt)> submittedTextPrompts=[];
     private readonly CancellationTokenSource lifetime=new();
     private readonly Func<SendRequest,Action<CodexReplyUpdate>,CancellationToken,Task<SendResult>> sendCodex;
-    private readonly Func<SendRequest,CancellationToken,Task<SendResult>> sendChatGpt;
+    private readonly Func<SendRequest,Action<AgentReplyUpdate>,CancellationToken,Task<SendResult>> sendAgent;
     private readonly Grid layout;
     private readonly Grid toolGrid,messageHeader;
     private readonly PanelResizeController resizeController;
@@ -61,7 +63,7 @@ internal sealed class FloatingPanelWindow : Window
     internal PanelShadowWindow ShadowWindow=>shadowWindow;
     private CancellationTokenSource? waitingCancellation;
     private MarkdownMessageView? latestResponse;
-    private TextBlock? latestResponseHeading;
+    private TextBlock? latestResponseHeading,latestResponseModel;
     private byte[] png=[];
     private int imageVersion,operationVersion;
     private bool busy,expanded,closed;
@@ -83,8 +85,12 @@ internal sealed class FloatingPanelWindow : Window
     internal bool IsExpanded=>expanded;
     internal bool IsProcessing=>progress.IsActive;
     internal bool CanSendToCodex=>codex.IsEnabled;
+    internal bool CanSendToAgent=>agent.IsEnabled;
+    internal string ResponseModelName=>latestResponseModel?.Text??"";
     internal bool CanSendFromComposer=>send.IsEnabled;
     internal Button ComposerSendButton=>send;
+    internal ComboBox ComposerModeSelector=>composerMode;
+    private string ComposerTarget=>composerMode.SelectedIndex==1?"Agent":"Codex";
     internal Task? ComposerSendTask {get;private set;}
     internal string PromptText {get=>prompt.Text;set=>prompt.Text=value;}
     internal bool IsToolbarVisible=>toolbarVisible;
@@ -113,9 +119,9 @@ internal sealed class FloatingPanelWindow : Window
     internal bool PreviewOnTop=>preview?.AppWindow.Presenter is OverlappedPresenter {IsAlwaysOnTop:true};
 
     public FloatingPanelWindow(App app,Func<SendRequest,Action<CodexReplyUpdate>,CancellationToken,Task<SendResult>>? sendCodex=null,
-        Func<SendRequest,CancellationToken,Task<SendResult>>? sendChatGpt=null)
+        Func<SendRequest,Action<AgentReplyUpdate>,CancellationToken,Task<SendResult>>? sendAgent=null)
     {
-        this.app=app;appearance=app.Settings.PanelAppearance;this.sendCodex=sendCodex??app.Codex.SendWithReplyAsync;this.sendChatGpt=sendChatGpt??((request,token)=>app.Bridge.SendAsync(request,token));Title="AI ScreenShot · 消息";Handle=WinRT.Interop.WindowNative.GetWindowHandle(this);
+        this.app=app;appearance=app.Settings.PanelAppearance;this.sendCodex=sendCodex??app.Codex.SendWithReplyAsync;this.sendAgent=sendAgent??app.Agent.SendWithReplyAsync;Title="AI ScreenShot · 消息";Handle=WinRT.Interop.WindowNative.GetWindowHandle(this);
         Native.SetWindowLongPtr(Handle,-20,(Native.GetWindowLongPtr(Handle,-20)|0x80)&~0x40000);
         var presenter=OverlappedPresenter.Create();presenter.SetBorderAndTitleBar(false,false);presenter.IsResizable=false;presenter.IsMaximizable=false;presenter.IsMinimizable=false;presenter.IsAlwaysOnTop=true;AppWindow.SetPresenter(presenter);
         // No native frame surrounds the transparent host; pane grips provide resizing.
@@ -131,7 +137,7 @@ internal sealed class FloatingPanelWindow : Window
         workspace.FontSize=UiDesign.Number("SS.Typography.Caption");workspace.MinHeight=UiDesign.Number("SS.ControlHeight");workspace.CornerRadius=UiDesign.Corner("SS.Corner.Control");
 
         var tools=new StackPanel{Orientation=Orientation.Horizontal,Spacing=UiDesign.Number("SS.Spacing.XS"),HorizontalAlignment=HorizontalAlignment.Left,VerticalAlignment=VerticalAlignment.Center};
-        foreach(var button in new[]{codex,chatgpt,copy,save,more})tools.Children.Add(button);
+        foreach(var button in new[]{codex,agent,copy,save,more})tools.Children.Add(button);
         toolGrid=new Grid{ColumnSpacing=UiDesign.Number("SS.Spacing.S")};toolGrid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});toolGrid.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});toolGrid.Children.Add(tools);
         ConfigurePaneMenu();Grid.SetColumn(paneMenuButton,1);toolGrid.Children.Add(paneMenuButton);
         ToolbarSurface=Surface("SS.ToolbarSurfaceStyle");ToolbarSurface.Height=toolbarHeight;ToolbarSurface.Padding=new Thickness(UiDesign.Number("SS.Spacing.M"),UiDesign.Number("SS.Spacing.S"),UiDesign.Number("SS.Spacing.M"),UiDesign.Number("SS.Spacing.S"));ToolbarSurface.Child=toolGrid;
@@ -140,7 +146,7 @@ internal sealed class FloatingPanelWindow : Window
         var header=new Grid{ColumnSpacing=UiDesign.Number("SS.Spacing.S")};messageHeader=header;header.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});for(int i=0;i<3;i++)header.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});
         header.Children.Add(StyledText("消息","SS.SectionTextStyle",VerticalAlignment.Center));
         Grid.SetColumn(workspace,1);header.Children.Add(workspace);
-        Label(stopWaiting,"停止提交确认或回复等待；不会取消或重发已经提交的任务");stopWaiting.Click+=(_,_)=>StopWaiting();Grid.SetColumn(stopWaiting,2);header.Children.Add(stopWaiting);
+        Label(stopWaiting,"Codex provider：请求中断本次生成；Agent：停止读取回复。不会重新提交截图");stopWaiting.Click+=(_,_)=>StopWaiting();Grid.SetColumn(stopWaiting,2);header.Children.Add(stopWaiting);
         messageGrid.Children.Add(header);
         var stateRow=new Grid{ColumnSpacing=UiDesign.Number("SS.Spacing.S")};stateRow.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});stateRow.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});stateRow.Children.Add(progress);Grid.SetColumn(status,1);stateRow.Children.Add(status);
         AutomationProperties.SetLiveSetting(status,Microsoft.UI.Xaml.Automation.Peers.AutomationLiveSetting.Polite);
@@ -150,8 +156,8 @@ internal sealed class FloatingPanelWindow : Window
         scroll.AddHandler(UIElement.PointerPressedEvent,new PointerEventHandler((_,_)=>RecordMessageInteraction()),true);
         scroll.AddHandler(UIElement.KeyDownEvent,new KeyEventHandler((_,e)=>{if(e.Key is VirtualKey.Up or VirtualKey.Down or VirtualKey.PageUp or VirtualKey.PageDown or VirtualKey.Home or VirtualKey.End or VirtualKey.Space)RecordMessageInteraction();}),true);
         var emptyIcon=UiDesign.Icon("\uE722",UiDesign.Number("SS.ControlHeight"));emptyIcon.Opacity=0.65;empty.Children.Add(emptyIcon);
-        var emptyTitle=StyledText("从一张截图开始","SS.SectionTextStyle");emptyTitle.HorizontalAlignment=HorizontalAlignment.Center;empty.Children.Add(emptyTitle);
-        var emptyDescription=StyledText("截取屏幕，填写提示词，再选择发送目标。","SS.CaptionTextStyle");emptyDescription.MaxWidth=300;emptyDescription.TextAlignment=TextAlignment.Center;empty.Children.Add(emptyDescription);
+        var emptyTitle=StyledText("从提示词或截图开始","SS.SectionTextStyle");emptyTitle.HorizontalAlignment=HorizontalAlignment.Center;empty.Children.Add(emptyTitle);
+        var emptyDescription=StyledText("输入提示词即可对话，也可以截取屏幕一起发送。","SS.CaptionTextStyle");emptyDescription.MaxWidth=300;emptyDescription.TextAlignment=TextAlignment.Center;empty.Children.Add(emptyDescription);
         var firstCapture=new Button{Content=ActionContent("截取屏幕","\uE722"),HorizontalAlignment=HorizontalAlignment.Center};UiDesign.Apply(firstCapture,"SS.PrimaryButtonStyle");firstCapture.Click+=(_,_)=>app.BeginCapture();empty.Children.Add(firstCapture);conversation.Children.Add(empty);
         Grid.SetRow(conversation,2);messageGrid.Children.Add(conversation);
         var draft=new Grid{ColumnSpacing=UiDesign.Number("SS.Spacing.S")};draft.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});draft.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});draft.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});
@@ -159,8 +165,15 @@ internal sealed class FloatingPanelWindow : Window
         thumbnail.Content=draftImage;Label(thumbnail,"查看当前截图详情");thumbnail.Click+=async(_,_)=>await ShowPreviewAsync(png);draft.Children.Add(thumbnail);Grid.SetColumn(dimensions,1);draft.Children.Add(dimensions);
         capture.Click+=(_,_)=>app.BeginCapture();Label(capture,"截取新的屏幕区域");Grid.SetColumn(capture,2);draft.Children.Add(capture);
         var composer=new Grid{ColumnSpacing=UiDesign.Number("SS.Spacing.S")};composer.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});composer.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});
-        AutomationProperties.SetName(prompt,"截图提示词");composer.Children.Add(prompt);Label(send,"发送截图和提示词到 Codex provider");Grid.SetColumn(send,1);composer.Children.Add(send);
-        send.Click+=async(_,_)=>{ComposerSendTask=SendCodexAsync();await ComposerSendTask;};
+        AutomationProperties.SetName(prompt,"对话或截图提示词");composer.Children.Add(prompt);
+        composerMode.CornerRadius=UiDesign.Corner("SS.Corner.Control");Label(composerMode,"发送模式：Codex 或 Agent");
+        AutomationProperties.SetHelpText(composerMode,"选择输入框旁发送按钮使用的模式；工具栏按钮仍分别发送到各自目标");
+        var sendActions=new StackPanel{Spacing=UiDesign.Number("SS.Spacing.XS"),VerticalAlignment=VerticalAlignment.Bottom};
+        send.HorizontalAlignment=HorizontalAlignment.Stretch;sendActions.Children.Add(composerMode);sendActions.Children.Add(send);
+        Grid.SetColumn(sendActions,1);composer.Children.Add(sendActions);
+        composerMode.SelectionChanged+=(_,_)=>UpdateButtons();
+        prompt.TextChanged+=(_,_)=>UpdateButtons();
+        send.Click+=async(_,_)=>{ComposerSendTask=SendAsync(ComposerTarget);await ComposerSendTask;};
         var inputRegion=new StackPanel{Spacing=UiDesign.Number("SS.Spacing.S")};inputRegion.Children.Add(draft);inputRegion.Children.Add(composer);
         var inputSurface=Surface("SS.ComposerSurfaceStyle");inputSurface.Padding=UiDesign.Thickness("SS.Spacing.M");inputSurface.Child=inputRegion;Grid.SetRow(inputSurface,3);messageGrid.Children.Add(inputSurface);
         MessageSurface=Surface("SS.MessageSurfaceStyle");MessageSurface.Child=messageGrid;
@@ -179,7 +192,7 @@ internal sealed class FloatingPanelWindow : Window
         ToolTipService.SetToolTip(ToolbarSurface,"按住空白区域左键拖动，可移动工具栏和消息栏");
         ToolTipService.SetToolTip(MessageDragTitle,"按住标题或空白区域左键拖动，可移动工具栏和消息栏");
         outer.AddHandler(UIElement.KeyDownEvent,new KeyEventHandler((_,e)=>{if(e.Key==VirtualKey.Escape){app.CollapseFloatingPanel();e.Handled=true;}}),true);
-        codex.Click+=async(_,_)=>await SendCodexAsync();chatgpt.Click+=async(_,_)=>await SendAsync("ChatGPT");
+        codex.Click+=async(_,_)=>await SendCodexAsync();agent.Click+=async(_,_)=>await SendAsync("Agent");
         copy.Click+=async(_,_)=>{try{await ClipboardService.ImageAsync(png,token:lifetime.Token);if(!closed)SetStatus("图片已复制");}catch(Exception e){if(!closed)SetStatus("复制失败："+ErrorText(e));}};
         save.Click+=async(_,_)=>await SaveAsync();
         ConfigureWorkspace();ConfigureMore();UpdateButtons();
@@ -318,7 +331,7 @@ internal sealed class FloatingPanelWindow : Window
         var menu=new MenuFlyout();more.Flyout=menu;
         void Add(string text,Action action){var item=new MenuFlyoutItem{Text=text};item.Click+=(_,_)=>action();menu.Items.Add(item);}
         Add("截取新截图",app.BeginCapture);
-        Add("发送到两端",async()=>{await SendAsync("ChatGPT");await SendAsync("Codex");});
+        Add("发送到两端",async()=>{await SendAsync("Agent");await SendAsync("Codex");});
         Add("复制提示词",async()=>{try{await ClipboardService.TextAsync(new SendRequest([],prompt.Text,null,app.Settings.DefaultPrompt).EffectivePrompt,token:lifetime.Token);if(!closed)SetStatus("提示词已复制");}catch(Exception e){if(!closed)SetStatus(ErrorText(e));}});
         Add("清空消息",()=>{if(busy)return;operationVersion++;messages.Children.Clear();empty.Visibility=Visibility.Visible;SetStatus("消息已清空");});
         Add("退出截图",()=>{app.EndCaptureSession(false);SetStatus("已退出截图，当前图片仍可使用");});
@@ -478,7 +491,7 @@ internal sealed class FloatingPanelWindow : Window
         double toolbarInsets=toolbarPadding.Left+toolbarPadding.Right+ToolbarSurface.BorderThickness.Left+ToolbarSurface.BorderThickness.Right;
         int count=toolbarCompact?2:5;
         double buttonWidth=Math.Clamp((ToolbarWidth-toolbarInsets-UiDesign.Number("SS.ControlHeight")-UiDesign.Number("SS.Spacing.S")-(count-1)*UiDesign.Number("SS.Spacing.XS"))/count,32,UiDesign.Number("SS.ToolbarButtonWidth"));
-        foreach(var button in new[]{codex,chatgpt,copy,save,more})button.Width=buttonWidth;
+        foreach(var button in new[]{codex,agent,copy,save,more})button.Width=buttonWidth;
         double headerControls=36+24+(stopWaiting.Visibility==Visibility.Visible?100:0)+(toolbarVisible?0:UiDesign.Number("SS.ControlHeight"));
         workspace.MaxWidth=Math.Clamp(width-34-headerControls,64,204);
         foreach(var bubble in messages.Children.OfType<Border>())bubble.MaxWidth=Math.Max(1,width-56);
@@ -628,9 +641,12 @@ internal sealed class FloatingPanelWindow : Window
     {
         empty.Visibility=Visibility.Collapsed;
         var body=new StackPanel{Spacing=UiDesign.Number("SS.Spacing.S")};body.Children.Add(StyledText("你 · "+target,"SS.CaptionTextStyle"));
-        var image=new Image{Source=await LoadBitmapAsync(request.Png,360),Width=200,Height=112,Stretch=Stretch.Uniform};
-        if(closed)return;
-        var button=new Button{Content=image,Padding=new Thickness(0),HorizontalAlignment=HorizontalAlignment.Left};UiDesign.Apply(button,"SS.QuietButtonStyle");button.CornerRadius=UiDesign.Corner("SS.Corner.Control");Label(button,"查看这条消息的截图详情");button.Click+=async(_,_)=>await ShowPreviewAsync(request.Png);body.Children.Add(button);
+        if(request.Png.Length>0)
+        {
+            var image=new Image{Source=await LoadBitmapAsync(request.Png,360),Width=200,Height=112,Stretch=Stretch.Uniform};
+            if(closed)return;
+            var button=new Button{Content=image,Padding=new Thickness(0),HorizontalAlignment=HorizontalAlignment.Left};UiDesign.Apply(button,"SS.QuietButtonStyle");button.CornerRadius=UiDesign.Corner("SS.Corner.Control");Label(button,"查看这条消息的截图详情");button.Click+=async(_,_)=>await ShowPreviewAsync(request.Png);body.Children.Add(button);
+        }
         body.Children.Add(new MarkdownMessageView{Text=request.EffectivePrompt});
         AddBubble(body,false);
     }
@@ -663,14 +679,26 @@ internal sealed class FloatingPanelWindow : Window
             scroll.UpdateLayout();ScrollMessageToBottom();
         });
     }
+    private bool CanSendTo(string target)=>!busy&&(png.Length>0?!submittedTargets.Contains(target):
+        !string.IsNullOrWhiteSpace(prompt.Text)&&!submittedTextPrompts.Contains((target,prompt.Text.Trim())));
+    private void MarkSubmitted(string target,SendRequest request)
+    {
+        if(request.Png.Length>0)submittedTargets.Add(target);
+        else submittedTextPrompts.Add((target,request.Prompt.Trim()));
+    }
     private void UpdateButtons()
     {
-        codex.IsEnabled=!busy&&png.Length>0&&!submittedTargets.Contains("Codex");chatgpt.IsEnabled=!busy&&png.Length>0&&!submittedTargets.Contains("ChatGPT");
-        send.IsEnabled=codex.IsEnabled;UpdateLayoutDimensions();
+        codex.IsEnabled=CanSendTo("Codex");agent.IsEnabled=CanSendTo("Agent");
+        send.IsEnabled=ComposerTarget=="Agent"?agent.IsEnabled:codex.IsEnabled;composerMode.IsEnabled=!busy;
+        Label(send,(png.Length>0?"发送截图和提示词到 ":"发送提示词到 ")+ComposerTarget);UpdateLayoutDimensions();
         copy.IsEnabled=save.IsEnabled=!busy&&png.Length>0;more.IsEnabled=capture.IsEnabled=workspace.IsEnabled=prompt.IsEnabled=!busy;
     }
     internal Task SendCodexAsync()=>SendAsync("Codex");
-    internal void StopWaiting()=>waitingCancellation?.Cancel();
+    internal void StopWaiting()
+    {
+        if(waitingCancellation==null||waitingCancellation.IsCancellationRequested)return;
+        stopWaiting.IsEnabled=false;waitingCancellation.Cancel();
+    }
     private Task FlushReplyUpdatesAsync()
     {
         if(closed)return Task.CompletedTask;
@@ -681,43 +709,49 @@ internal sealed class FloatingPanelWindow : Window
     }
     private async Task SendAsync(string target)
     {
-        if(target=="ChatGPT"){await SendChatGptAsync();return;}
-        if(closed||busy||png.Length==0||submittedTargets.Contains(target))return;
+        if(closed||!CanSendTo(target))return;
         if(target=="Codex"&&(app.Codex.IsProvider?app.Settings.CodexDirectory==null:app.Settings.Workspace==null)){SetStatus(app.Codex.IsProvider?"先在消息标题栏选择 Codex 工作目录":"先在消息标题栏选择 Codex 工作区");workspace.Focus(FocusState.Programmatic);return;}
-        bool isCodex=target=="Codex",hiddenForOperation=false;
+        bool isCodex=target=="Codex";
         busy=true;UpdateButtons();SetStatus("正在发送到 "+target,true);
-        stopWaiting.Visibility=isCodex?Visibility.Visible:Visibility.Collapsed;
+        stopWaiting.IsEnabled=true;stopWaiting.Visibility=Visibility.Visible;
         UpdateLayoutDimensions();
         var request=new SendRequest(png,prompt.Text,app.Settings.Workspace is {} name?new Workspace(name,app.Settings.CodexDirectory):null,app.Settings.DefaultPrompt);
         var response=new MarkdownMessageView{Text="正在发送…"};
-        var responseHeading=StyledText(target+" · 发送状态","SS.CaptionTextStyle");latestResponse=response;latestResponseHeading=responseHeading;
+        var responseHeading=StyledText(target+" · 发送状态","SS.CaptionTextStyle");responseHeading.TextTrimming=TextTrimming.CharacterEllipsis;
+        var responseModel=StyledText(isCodex?"":(app.Settings.Agent.ModelName??"").Trim(),"SS.CaptionTextStyle");
+        responseModel.Visibility=isCodex?Visibility.Collapsed:Visibility.Visible;responseModel.MaxWidth=180;responseModel.TextAlignment=TextAlignment.Right;responseModel.TextTrimming=TextTrimming.CharacterEllipsis;
+        ToolTipService.SetToolTip(responseModel,responseModel.Text);AutomationProperties.SetName(responseModel,"回复模型："+responseModel.Text);
+        latestResponse=response;latestResponseHeading=responseHeading;latestResponseModel=responseModel;
         bool submitted=false,replyFinished=false,receivingUpdates=true,receivedReplyText=false;int operation=++operationVersion;
         using var cancellation=CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);waitingCancellation=cancellation;
         try
         {
-            if(isCodex){ClosePreview();app.EndCaptureSession(false);}
+            ClosePreview();app.EndCaptureSession(false);
             await AddUserMessageAsync(request,target);
             if(closed)return;
-            var body=new StackPanel{Spacing=UiDesign.Number("SS.Spacing.S")};body.Children.Add(responseHeading);body.Children.Add(response);AddBubble(body,true);
-            if(!isCodex){app.SetFloatingOperationVisible(false);hiddenForOperation=true;}
+            var replyHeader=new Grid{ColumnSpacing=UiDesign.Number("SS.Spacing.S")};replyHeader.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});replyHeader.ColumnDefinitions.Add(new(){Width=GridLength.Auto});
+            replyHeader.Children.Add(responseHeading);Grid.SetColumn(responseModel,1);replyHeader.Children.Add(responseModel);
+            var body=new StackPanel{Spacing=UiDesign.Number("SS.Spacing.S")};body.Children.Add(replyHeader);body.Children.Add(response);AddBubble(body,true);
             SendResult result;
-            if(isCodex)result=await sendCodex(request,update=>
+            void ReceiveUpdate(CodexReplyUpdate update,string? modelName=null)
             {
                 void ApplyUpdate()
                 {
                     if(closed||!receivingUpdates||replyFinished||operation!=operationVersion)return;
+                    if(!isCodex&&!string.IsNullOrWhiteSpace(modelName))
+                    {responseModel.Text=modelName;ToolTipService.SetToolTip(responseModel,modelName);AutomationProperties.SetName(responseModel,"回复模型："+modelName);}
                     double previousOffset=scroll.VerticalOffset;
                     long interactionVersion=messageInteractionVersion;double? pendingOffset=requestedMessageOffset;
                     bool followBottom=messageVisible&&(scroll.ScrollableHeight-previousOffset<=16||pendingOffset.HasValue&&Math.Abs(scroll.ScrollableHeight-pendingOffset.Value)<=1),deferredRender=false;
                     if(update.Phase==CodexReplyPhase.Submitted)
                     {
-                        submitted=true;submittedTargets.Add(target);stopWaiting.Visibility=Visibility.Visible;
-                        responseHeading.Text="Codex · 正在处理";response.Text="正在思考 / 正在处理…";SetStatus("消息已提交 · Codex 正在思考 / 正在处理",true);
+                        submitted=true;MarkSubmitted(target,request);stopWaiting.Visibility=Visibility.Visible;
+                        responseHeading.Text=target+" · 正在处理";response.Text="正在思考 / 正在处理…";SetStatus("消息已提交 · "+target+" 正在思考 / 正在处理",true);
                     }
                     else if(update.Phase==CodexReplyPhase.Thinking)
                     {
                         string workStatus=string.IsNullOrWhiteSpace(update.Status)?"正在思考 / 正在处理":update.Status.Trim();
-                        responseHeading.Text="Codex · "+workStatus;SetStatus("Codex · "+workStatus,true);
+                        responseHeading.Text=target+" · "+workStatus;SetStatus(target+" · "+workStatus,true);
                         if(!string.IsNullOrWhiteSpace(update.Text))
                         {
                             receivedReplyText=true;deferredRender=true;
@@ -727,12 +761,12 @@ internal sealed class FloatingPanelWindow : Window
                     }
                     else if(update.Phase==CodexReplyPhase.Completed)
                     {
-                        replyFinished=true;stopWaiting.Visibility=Visibility.Collapsed;responseHeading.Text="Codex";
-                        response.Text=string.IsNullOrEmpty(update.Text)?update.Status??"Codex 已完成，未返回回复正文。":update.Text;SetStatus("Codex 输出完成");
+                        replyFinished=true;stopWaiting.Visibility=Visibility.Collapsed;responseHeading.Text=target;
+                        response.Text=string.IsNullOrEmpty(update.Text)?update.Status??target+" 已完成，未返回回复正文。":update.Text;SetStatus(target+" 输出完成");
                     }
                     else if(update.Phase==CodexReplyPhase.Unavailable)
                     {
-                        replyFinished=true;stopWaiting.Visibility=Visibility.Collapsed;responseHeading.Text="Codex · 回复状态";
+                        replyFinished=true;stopWaiting.Visibility=Visibility.Collapsed;responseHeading.Text=target+" · 回复状态";
                         string replyStatus=update.Status??update.Text??"消息已提交 · 回复连接已断开";
                         if(update.Status!=null&&!string.IsNullOrWhiteSpace(update.Text)){receivedReplyText=true;response.Text=update.Text;}
                         if(!receivedReplyText)response.Text=replyStatus;SetStatus(replyStatus);
@@ -740,30 +774,31 @@ internal sealed class FloatingPanelWindow : Window
                     if(followBottom&&!deferredRender)FollowMessageBottom(previousOffset,interactionVersion,pendingOffset);
                 }
                 if(DispatcherQueue.HasThreadAccess)ApplyUpdate();else DispatcherQueue.TryEnqueue(ApplyUpdate);
-            },cancellation.Token);
-            else result=await app.Bridge.SendAsync(request,cancellation.Token);
-            if(isCodex)await FlushReplyUpdatesAsync();
+            }
+            if(isCodex)result=await sendCodex(request,update=>ReceiveUpdate(update),cancellation.Token);
+            else result=await sendAgent(request,update=>ReceiveUpdate(new(update.Phase switch{AgentReplyPhase.Submitted=>CodexReplyPhase.Submitted,AgentReplyPhase.Thinking=>CodexReplyPhase.Thinking,AgentReplyPhase.Completed=>CodexReplyPhase.Completed,_=>CodexReplyPhase.Unavailable},update.Text,update.Status),update.ModelName),cancellation.Token);
+            await FlushReplyUpdatesAsync();
             if(closed||operation!=operationVersion)return;
-            if(result.State!=SendState.Failed)submittedTargets.Add(target);
-            if(!isCodex||result.State!=SendState.Sent)
+            if(result.State!=SendState.Failed)MarkSubmitted(target,request);
+            if(result.State!=SendState.Sent)
             {
-                responseHeading.Text=target+" · 发送状态";response.Text=result.Message;SetStatus(result.Message);
+                responseHeading.Text=target+" · 发送状态";if(isCodex||!receivedReplyText)response.Text=result.Message;SetStatus(result.Message);
             }
             else if(!replyFinished)
             {
-                responseHeading.Text="Codex · 回复状态";
-                if(!receivedReplyText)response.Text="消息已提交，请到 Codex 查看回复。";SetStatus("消息已提交 · 请到 Codex 查看回复");
+                responseHeading.Text=target+" · 回复状态";
+                if(!receivedReplyText)response.Text=isCodex?"消息已提交，请到 Codex 查看回复。":"请求已发送，Agent 未返回完整回复；不会自动重发";SetStatus(isCodex?"消息已提交 · 请到 Codex 查看回复":"请求已发送，Agent 未返回完整回复；不会自动重发");
             }
         }
         catch(Exception e)
         {
-            if(isCodex)await FlushReplyUpdatesAsync();
+            await FlushReplyUpdatesAsync();
             if(closed||operation!=operationVersion)return;
             string replyStatus;
             if(submitted)
             {
-                submittedTargets.Add(target);responseHeading.Text="Codex · 回复状态";
-                replyStatus=e is OperationCanceledException?"消息已提交 · 已停止等待回复，请到 Codex 查看处理结果。":"消息已提交 · 回复读取失败，请到 Codex 查看处理结果。";
+                MarkSubmitted(target,request);responseHeading.Text=target+" · 回复状态";
+                replyStatus=!isCodex?"Agent 回复读取已停止或失败；远端结果未知，不会自动重发":e is OperationCanceledException?"消息已提交 · 已停止等待回复；未确认 Codex 是否停止生成，已保留收到的内容。":"消息已提交 · 回复读取失败，请到 Codex 查看处理结果。";
                 if(!receivedReplyText)response.Text=replyStatus;
             }
             else{responseHeading.Text=target+" · 发送状态";replyStatus=response.Text="发送失败："+ErrorText(e);}
@@ -772,31 +807,10 @@ internal sealed class FloatingPanelWindow : Window
         finally
         {
             receivingUpdates=false;if(waitingCancellation==cancellation)waitingCancellation=null;busy=false;
-            if(!closed){stopWaiting.Visibility=Visibility.Collapsed;UpdateButtons();if(hiddenForOperation)app.SetFloatingOperationVisible(true);}
+            if(!closed){stopWaiting.Visibility=Visibility.Collapsed;UpdateButtons();}
         }
     }
-    internal async Task SendChatGptAsync()
-    {
-        if(closed||busy||png.Length==0||submittedTargets.Contains("ChatGPT"))return;
-        busy=true;UpdateButtons();SetStatus("正在打开 ChatGPT 官网并发送截图",true);
-        int operation=++operationVersion;
-        var request=new SendRequest(png,prompt.Text,null,app.Settings.DefaultPrompt);
-        using var cancellation=CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
-        app.EndCaptureSession(false);app.SetFloatingOperationVisible(false);
-        try
-        {
-            var result=await sendChatGpt(request,cancellation.Token);
-            if(closed||operation!=operationVersion)return;
-            if(result.State!=SendState.Failed)submittedTargets.Add("ChatGPT");
-            SetStatus(result.State==SendState.Sent?"已发送到 ChatGPT 官网，请在浏览器中查看回复":result.Message);
-        }
-        catch(Exception error){if(!closed&&operation==operationVersion)SetStatus("ChatGPT 发送失败："+ErrorText(error));}
-        finally
-        {
-            busy=false;
-            if(!closed){UpdateButtons();app.SetFloatingOperationVisible(true);}
-        }
-    }
+    internal Task SendAgentAsync()=>SendAsync("Agent");
     private async Task SaveAsync()
     {
         if(closed||busy||png.Length==0)return;

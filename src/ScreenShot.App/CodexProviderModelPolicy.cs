@@ -4,7 +4,7 @@ namespace ScreenShot.App;
 
 internal static class CodexProviderModelPolicy
 {
-    internal static string Validate(JsonElement configuration,JsonElement catalog)
+    internal static string Validate(JsonElement configuration,JsonElement catalog,bool requiresImage=true)
     {
         if(configuration.ValueKind!=JsonValueKind.Object||catalog.ValueKind!=JsonValueKind.Object||
             !catalog.TryGetProperty("data",out var data)||data.ValueKind!=JsonValueKind.Array)throw new CodexTransportException();
@@ -21,8 +21,8 @@ internal static class CodexProviderModelPolicy
         }
         if(selected is not JsonElement entry)
             throw new InvalidOperationException("当前 Codex CLI 未提供所配置的模型；请使用桌面内置 CLI 或升级 CLI，不会自动更换模型");
-        if(!entry.TryGetProperty("inputModalities",out var modalities)||modalities.ValueKind!=JsonValueKind.Array||
-            !modalities.EnumerateArray().Any(value=>value.ValueKind==JsonValueKind.String&&value.GetString()=="image"))
+        if(requiresImage&&(!entry.TryGetProperty("inputModalities",out var modalities)||modalities.ValueKind!=JsonValueKind.Array||
+            !modalities.EnumerateArray().Any(value=>value.ValueKind==JsonValueKind.String&&value.GetString()=="image")))
             throw new InvalidOperationException("当前模型未声明支持图片输入，请检查 Codex 模型或 CLI 版本");
         string? effort=String(configuration,"model_reasoning_effort");
         if(!string.IsNullOrEmpty(effort)&&entry.TryGetProperty("supportedReasoningEfforts",out var efforts)&&efforts.ValueKind==JsonValueKind.Array&&

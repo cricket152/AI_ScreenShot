@@ -15,7 +15,7 @@ internal static class PromptTests
         var settings=new Settings();
         Check(settings.DefaultPrompt==SendRequest.BuiltInDefaultPrompt,"New settings retain the built-in default prompt");
         var legacy=JsonSerializer.Deserialize<Settings>("{\"Browser\":\"Chrome\",\"Workspace\":\"existing\"}")!;
-        Check(legacy.DefaultPrompt==SendRequest.BuiltInDefaultPrompt&&legacy.Browser=="Chrome"&&legacy.Workspace=="existing","Legacy settings without a default prompt remain compatible");
+        Check(legacy.DefaultPrompt==SendRequest.BuiltInDefaultPrompt&&legacy.Workspace=="existing","Legacy settings ignore retired browser configuration and retain other fields");
         foreach(string? configured in new string?[]{null,""," \r\n\t "})
         {
             var restored=JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(new {DefaultPrompt=configured}))!;
@@ -38,11 +38,10 @@ internal static class PromptTests
         settings.DefaultPrompt=" \t ";
         Check(settings.DefaultPrompt==SendRequest.BuiltInDefaultPrompt,"Clearing the setting restores the built-in default");
 
-        foreach(var request in new[]{captured,new SendRequest([1],manual,null,customized),new SendRequest([1],"",null," ")})
-        {
-            var begin=JsonSerializer.SerializeToElement(BridgeProtocol.Encode(request,"prompt-test").First());
-            Check(begin.GetProperty("prompt").GetString()==request.EffectivePrompt,"ChatGPT bridge receives the same effective prompt as Codex");
-        }
+        Check(!JsonSerializer.Serialize(legacy).Contains("Browser"),"Saving legacy settings removes browser configuration");
+        Check(new SendRequest([],manual,null,customized).HasContent&&new SendRequest([],manual,null,customized).EffectivePrompt==manual,"Text-only requests preserve manual prompts without requiring an image");
+        Check(!new SendRequest([]," \r\n\t",null,customized).HasContent&&new SendRequest([]," \r\n\t",null,customized).EffectivePrompt=="","Empty text-only requests cannot turn into default screenshot analysis");
+        Check(new SendRequest([1],"",null).HasContent,"A screenshot with a blank prompt remains sendable");
         return checks;
     }
 }

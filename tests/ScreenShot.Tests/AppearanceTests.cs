@@ -12,11 +12,11 @@ internal static class AppearanceTests
         var configured=new Settings{PanelAppearance=new(){Toolbar=new(SurfaceMaterial.AcrylicThin,0.25),Messages=new(SurfaceMaterial.Acrylic,1)}};
         var restored=JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(configured))!;
         Check(restored.PanelAppearance==configured.PanelAppearance,"Two independent materials and opacity endpoints survive JSON persistence");
-        Check(legacy.Browser=="Chrome"&&legacy.DefaultPrompt=="保留提示词"&&legacy.HotkeyKey==65,"Material migration preserves existing unrelated settings");
+        Check(legacy.DefaultPrompt=="保留提示词"&&legacy.HotkeyKey==65,"Material migration preserves existing unrelated settings");
         var malformed=JsonSerializer.Deserialize<Settings>("{\"PanelAppearance\":{\"Base\":null,\"Toolbar\":{\"Material\":999,\"Opacity\":-4},\"Messages\":{\"Opacity\":8}},\"Browser\":\"Chrome\"}")!;
         Check(!JsonSerializer.Serialize(malformed).Contains("\"Base\""),"Retired base fields are ignored and omitted when saving");
         Check(malformed.PanelAppearance.Toolbar.Material==SurfaceMaterial.Acrylic&&malformed.PanelAppearance.Toolbar.Opacity==0,"Unknown material and negative opacity are normalized");
-        Check(malformed.PanelAppearance.Messages.Opacity==1&&malformed.Browser=="Chrome","Oversized opacity cannot discard unrelated settings");
+        Check(malformed.PanelAppearance.Messages.Opacity==1&&!JsonSerializer.Serialize(malformed).Contains("Browser"),"Oversized opacity cannot discard unrelated settings");
         Check(JsonSerializer.Deserialize<Settings>("{\"PanelAppearance\":null}")!.PanelAppearance==new PanelAppearance(),"Null appearance keeps defaults");
         Check(new SurfaceAppearance(SurfaceMaterial.Transparent,double.NaN).Normalize().Opacity==0.65,"Nonfinite opacity cannot reach native controllers");
         var retired=JsonSerializer.Deserialize<Settings>("{\"PanelAppearance\":{\"HideWindowBase\":false,\"Base\":{\"Material\":0,\"Opacity\":1},\"EnableAnimations\":false,\"Toolbar\":{\"Material\":2,\"Opacity\":0.23}},\"DefaultPrompt\":\"保留提示词\"}")!;

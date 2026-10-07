@@ -15,18 +15,7 @@ Check(new PixelRect(-2500,-500,1000,700).Clamp(virtualDesktop)==new PixelRect(-1
 Check(new PixelRect(5000,5000,10,10).Clamp(virtualDesktop).Width==0,"Outside virtual desktop");
 Check(new SendRequest([1],"  ",null).EffectivePrompt=="请描述并分析这张截图","Empty prompt fallback");
 Check(!new SendResult(SendState.Unknown,"Unknown").Retryable,"Unknown results cannot retry");
-byte[] image=Enumerable.Range(0,1200000).Select(i=>(byte)(i%251)).ToArray();
-var messages=BridgeProtocol.Encode(new(image,"中文\n提示词",null),"test").Select(o=>JsonSerializer.SerializeToElement(o)).ToArray();
-Check(messages[0].GetProperty("length").GetInt32()==image.Length,"Image declared length");
-Check(messages[^1].GetProperty("type").GetString()=="commit","Commit frame");
-var parts=new List<byte>();int index=0;
-foreach(var chunk in messages.Where(e=>e.GetProperty("type").GetString()=="chunk"))
-{
-    Check(chunk.GetProperty("index").GetInt32()==index++,"Ordered chunks");
-    Check(chunk.GetProperty("data").GetString()!.Length<=256*1024,"Native message payload bound");
-    parts.AddRange(Convert.FromBase64String(chunk.GetProperty("data").GetString()!));
-}
-Check(parts.SequenceEqual(image),"Lossless image transport");
+checks+=await AgentTests.RunAsync();
 int probes=0;
 var observed=await ScreenShot.App.CodexAutomation.WaitAsync(()=>
 {

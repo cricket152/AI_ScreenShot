@@ -12,7 +12,10 @@ internal sealed class SettingsWindow : Window
 {
     private readonly App app;
     private readonly Func<uint,uint,bool> changeHotkey;
-    private readonly ComboBox browser;
+    private readonly TextBox agentModel=new(),agentBaseUrl=new();
+    private readonly PasswordBox agentApiKey=new(){PlaceholderText="API key（本机免认证可留空）"};
+    private readonly ToggleSwitch agentStream=new(){OnContent="开启",OffContent="关闭"};
+    private readonly NumberBox agentTimeout=new(){Minimum=10,Maximum=3600,SpinButtonPlacementMode=NumberBoxSpinButtonPlacementMode.Compact};
     private readonly TextBox key;
     private readonly TextBox codexExecutable;
     private readonly TextBlock codexDirectory;
@@ -65,7 +68,11 @@ internal sealed class SettingsWindow : Window
         shadowOpacity.Value=settings.PanelAppearance.ShadowOpacity*100;accentMix.Value=settings.PanelAppearance.AccentMix*100;
         appTheme.SelectedIndex=Array.IndexOf(ThemeChoices,settings.PanelAppearance.Theme);
         accentMode.SelectedIndex=(int)settings.PanelAppearance.AccentMode;accentPicker.Color=AppThemeController.ParseColor(settings.PanelAppearance.CustomAccentColor);
-        browser=new(){ItemsSource=new[]{"Edge","Chrome"},SelectedItem=settings.Browser,MinHeight=UiDesign.Number("SS.ControlHeight"),CornerRadius=UiDesign.Corner("SS.Corner.Control")};
+        agentModel.Text=settings.Agent.ModelName;agentModel.PlaceholderText="服务商提供的模型 ID";
+        agentBaseUrl.Text=settings.Agent.BaseUrl;agentBaseUrl.PlaceholderText="https://api.example.com/v1";
+        try{agentApiKey.Password=settings.Agent.ApiKey;}catch(Exception error) when(error is FormatException or System.Security.Cryptography.CryptographicException){SetFeedback("保存的 API key 无法解密，请重新填写",InfoBarSeverity.Warning);}
+        agentStream.IsOn=settings.Agent.Stream;agentTimeout.Value=settings.Agent.TimeoutSeconds;
+        foreach(var editor in new Control[]{agentModel,agentBaseUrl,agentApiKey,agentTimeout})editor.MinHeight=UiDesign.Number("SS.ControlHeight");
         key=new(){Text=((char)settings.HotkeyKey).ToString(),MaxLength=1,MinHeight=UiDesign.Number("SS.ControlHeight"),MaxWidth=UiDesign.Number("SS.BallSize"),CornerRadius=UiDesign.Corner("SS.Corner.Control"),HorizontalContentAlignment=HorizontalAlignment.Center};
         codexExecutable=new(){Text=settings.CodexExecutable??"",PlaceholderText="codex.exe 的完整路径",MinHeight=UiDesign.Number("SS.ControlHeight"),CornerRadius=UiDesign.Corner("SS.Corner.Control")};
         codexDirectory=new(){Text=settings.CodexDirectory??"尚未选择工作目录",TextWrapping=TextWrapping.Wrap,IsTextSelectionEnabled=true};
@@ -84,7 +91,7 @@ internal sealed class SettingsWindow : Window
         BuildPages();
         BuildShell();
         app.Themes.Track(this);app.Themes.Changed+=UpdateAccentPreview;UpdateAccentPreview();
-        SetFeedback(app.Bridge?.Status??"扩展未连接");
+        if(string.IsNullOrEmpty(feedback.Message))SetFeedback(app.Settings.LoadWarning??"设置在点击保存后生效",app.Settings.LoadWarning==null?InfoBarSeverity.Informational:InfoBarSeverity.Warning);
         ResizeToWorkArea();
         Closed+=(_,_)=>{app.Themes.Changed-=UpdateAccentPreview;app.ApplyAppearance(app.Settings.PanelAppearance);};
     }
@@ -178,13 +185,22 @@ internal sealed class SettingsWindow : Window
         };
         codex.Children.Add(SettingRow("连接检测","检查当前 CLI、登录状态与图片模型是否就绪。",checkCodex));
 
-        var chatgpt=Page("chatgpt","ChatGPT","选择官网发送所用的浏览器并查看扩展连接。","\uE8F2");
-        chatgpt.Children.Add(SettingRow("ChatGPT 浏览器","发送截图到 ChatGPT 官网时使用。",browser));
-        var checkBridge=ActionButton("检测连接","\uE9CE");
-        checkBridge.Click+=(_,_)=>SetFeedback(app.Bridge?.Status??"扩展未连接");
-        chatgpt.Children.Add(SettingRow("浏览器扩展","扩展会自动连接，程序重启后自动重连。",checkBridge));
-        chatgpt.Children.Add(SectionTitle("安装扩展"));
-        chatgpt.Children.Add(Body("打开 edge://extensions 或 chrome://extensions，启用开发者模式并加载发布目录的 extension 文件夹。复制扩展 ID，按 README 运行注册脚本。"));
+        var agent=Page("agent","Agent","配置 OpenAI compatible 接口，在消息面板对话或分析截图。","\uE8F2");
+        agent.Children.Add(SettingRow("Model name","填写服务商提供的模型 ID；发送截图时需支持图片输入。",agentModel));
+        agent.Children.Add(SettingRow("Base URL","API 根地址，包含版本路径（如 /v1）；自动追加 /chat/completions。本机接口允许 HTTP。",agentBaseUrl));
+        agent.Children.Add(SettingRow("API key","使用 Bearer 认证；本机免认证接口可留空。以当前 Windows 用户 DPAPI 加密保存。",agentApiKey));
+        agent.Children.Add(SettingRow("流式回复","开启时逐步显示回复；服务不支持流式时可关闭。",agentStream));
+        agent.Children.Add(SettingRow("请求超时（秒）","10–3600 秒；超时或停止后不自动重发。",agentTimeout));
+        var checkAgent=ActionButton("检测连接","\uE9CE");
+        checkAgent.Click+=async(_,_)=>
+        {
+            checkAgent.IsEnabled=false;
+            try{using var client=new AgentClient(()=>app.Settings.Agent);SetFeedback(await client.CheckAsync(ReadAgent(),CancellationToken.None),InfoBarSeverity.Success);}
+            catch(Exception error) when(error is InvalidOperationException or System.Security.Cryptography.CryptographicException or FormatException){SetFeedback(error.Message,InfoBarSeverity.Error);}
+            catch(Exception){SetFeedback("连接检测失败，请检查网络、接口和 API key；部分接口不支持 /models",InfoBarSeverity.Error);}
+            finally{checkAgent.IsEnabled=true;}
+        };
+        agent.Children.Add(SettingRow("连接检测","使用当前未保存配置检查认证与 /models；不会发送截图，不能确认图片能力。",checkAgent));
 
         var about=Page("about","关于","轻量的 Windows 截图与 AI 工具。","\uE946");
         about.Children.Add(SectionTitle("AI ScreenShot"));
@@ -192,7 +208,7 @@ internal sealed class SettingsWindow : Window
         about.Children.Add(Body("C# · .NET 10 · WinUI 3 · Windows App SDK"));
         var folder=ActionButton("打开程序目录","\uE8B7");
         folder.Click+=(_,_)=>System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe",AppContext.BaseDirectory){UseShellExecute=true});
-        about.Children.Add(SettingRow("程序目录","查看程序、扩展和发布文件。",folder));
+        about.Children.Add(SettingRow("程序目录","查看程序和发布文件。",folder));
     }
 
     private void BuildShell()
@@ -213,7 +229,7 @@ internal sealed class SettingsWindow : Window
             {
                 pageTitle.Text=page.Title;pageDescription.Text=page.Description;
                 if(saveButton!=null)
-                {string label=tag=="appearance"?"保存外观":"保存设置";saveButton.Content=ActionContent(label,"\uE74E");UiDesign.Label(saveButton,label);}
+                {string label=tag=="appearance"?"保存外观":tag=="agent"?"保存 Agent":"保存设置";saveButton.Content=ActionContent(label,"\uE74E");UiDesign.Label(saveButton,label);}
                 pageScroller.Content=page.Content;pageScroller.ChangeView(null,0,null,true);
                 if(navigation.IsLoaded&&navigation.DisplayMode==NavigationViewDisplayMode.Minimal)navigation.IsPaneOpen=false;
             }
@@ -232,7 +248,7 @@ internal sealed class SettingsWindow : Window
         footer.RowDefinitions.Add(new(){Height=GridLength.Auto});footer.RowDefinitions.Add(new(){Height=GridLength.Auto});
         footer.Children.Add(feedback);
         var save=ActionButton("保存设置","\uE74E");saveButton=save;UiDesign.Apply(save,"SS.PrimaryButtonStyle");save.HorizontalAlignment=HorizontalAlignment.Right;
-        save.Click+=(_,_)=>{if(navigation.SelectedItem is NavigationViewItem{Tag:"appearance"})SaveAppearance();else SaveSettings();};Grid.SetRow(save,1);footer.Children.Add(save);
+        save.Click+=(_,_)=>{if(navigation.SelectedItem is NavigationViewItem{Tag:"appearance"})SaveAppearance();else if(navigation.SelectedItem is NavigationViewItem{Tag:"agent"})SaveAgent();else SaveSettings();};Grid.SetRow(save,1);footer.Children.Add(save);
         Grid.SetRow(footer,2);content.Children.Add(footer);navigation.Content=content;
 
         var root=new Border{RequestedTheme=ElementTheme.Default,Child=navigation};UiDesign.Apply(root,"SS.WindowSurfaceStyle");Content=root;
@@ -259,7 +275,7 @@ internal sealed class SettingsWindow : Window
         var helper=new TextBlock{Text=description,TextWrapping=TextWrapping.Wrap};UiDesign.Apply(helper,"SS.CaptionTextStyle");labels.Children.Add(helper);
         if(detail!=null)labels.Children.Add(detail);
         row.Children.Add(labels);row.Children.Add(control);control.VerticalAlignment=VerticalAlignment.Center;UiDesign.Label(control,title);AutomationProperties.SetHelpText(control,description);
-        bool bounded=control is TextBox or ComboBox or Grid or StackPanel;
+        bool bounded=control is TextBox or PasswordBox or ComboBox or Grid or StackPanel;
         void UpdateLayout(double width)
         {
             bool stacked=width<UiDesign.Number("SS.Settings.RowStackBreakpoint");
@@ -365,6 +381,20 @@ internal sealed class SettingsWindow : Window
     private void SetFeedback(string message,InfoBarSeverity severity=InfoBarSeverity.Informational)
     {feedback.Severity=severity;feedback.Message=message;feedback.IsOpen=true;}
 
+    private AgentSettings ReadAgent()
+    {
+        if(!double.IsFinite(agentTimeout.Value)||agentTimeout.Value!=Math.Truncate(agentTimeout.Value))throw new InvalidOperationException("超时须填写整数秒");
+        var value=new AgentSettings{ModelName=agentModel.Text.Trim(),BaseUrl=agentBaseUrl.Text.Trim(),Stream=agentStream.IsOn,TimeoutSeconds=(int)agentTimeout.Value,ApiKey=agentApiKey.Password};
+        value.Validate();return value;
+    }
+    private void SaveAgent()
+    {
+        var previous=app.Settings.Agent;
+        try{app.Settings.Agent=ReadAgent();app.Settings.Save();SetFeedback("Agent 配置已保存",InfoBarSeverity.Success);}
+        catch(Exception error) when(error is InvalidOperationException or IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
+        {app.Settings.Agent=previous;SetFeedback(error.Message,InfoBarSeverity.Error);}
+    }
+
     private void SaveSettings()
     {
         var settings=app.Settings;
@@ -376,9 +406,9 @@ internal sealed class SettingsWindow : Window
         {try{_=CodexProviderExecutable.Resolve(executable);}catch(Exception error){SetFeedback(error.Message,InfoBarSeverity.Error);return;}}
         if(!changeHotkey(modifiers,letter[0]))
         {changeHotkey(settings.HotkeyModifiers,settings.HotkeyKey);SetFeedback("快捷键已被占用，原快捷键已恢复",InfoBarSeverity.Warning);return;}
-        settings.HotkeyModifiers=modifiers;settings.HotkeyKey=letter[0];settings.Browser=browser.SelectedItem?.ToString()??"Edge";
+        settings.HotkeyModifiers=modifiers;settings.HotkeyKey=letter[0];
         settings.CodexExecutable=executable.Length==0?null:executable;settings.DefaultPrompt=DefaultPromptEditor.Text;settings.Save();
-        DefaultPromptEditor.Text=settings.DefaultPrompt;SetFeedback("设置已保存 · "+(app.Bridge?.Status??"扩展未连接"),InfoBarSeverity.Success);
+        DefaultPromptEditor.Text=settings.DefaultPrompt;SetFeedback("设置已保存",InfoBarSeverity.Success);
     }
 
     private void ResizeToWorkArea()
