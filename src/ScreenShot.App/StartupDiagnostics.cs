@@ -51,6 +51,8 @@ public partial class App
             if(Panel.ResponseView?.CopyButton?.IsEnabled!=true)throw new InvalidOperationException("Restored replies have no full-message copy action");
             string appearanceChecks=Environment.GetCommandLineArgs().Contains("--conversation-appearance-test")?await RuntimeDiagnostics.VerifyConversationAppearanceAsync(Panel,output):"";
             if(Environment.GetCommandLineArgs().Contains("--message-selection-test"))appearanceChecks+=await RuntimeDiagnostics.VerifyMessageSelectionAsync(Panel,output);
+            if(Environment.GetCommandLineArgs().Contains("--math-render-test"))appearanceChecks+=await RuntimeDiagnostics.VerifyMathRenderingAsync(output);
+            if(Environment.GetCommandLineArgs().Contains("--capture-routing-test"))appearanceChecks+=await VerifyCaptureRoutingAsync(output);
             if(closedFixture!=null)appearanceChecks+=await RuntimeDiagnostics.VerifyConversationHistoryAsync(Panel,storage,closedFixture,output);
             if(StartupDiagnostics.ErrorCount!=0)throw new InvalidOperationException("Unhandled exception during cold startup");
             Panel.Close();Panel=null;

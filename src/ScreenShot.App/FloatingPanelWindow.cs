@@ -17,6 +17,9 @@ namespace ScreenShot.App;
 
 internal sealed partial class FloatingPanelWindow : Window
 {
+    private sealed record CaptureDraft(byte[] Png,BitmapImage Preview,PixelRect Region);
+    private CaptureDraft? latestCapture;
+    private int captureVersion;
     private sealed class ConversationView(Conversation data)
     {
         internal Conversation Data=data;
@@ -44,6 +47,7 @@ internal sealed partial class FloatingPanelWindow : Window
         internal TextBlock? latestResponseHeading=null;
         internal TextBlock? latestResponseModel=null;
         internal byte[] png=[];
+        internal CaptureDraft? Capture;
         internal int imageVersion=0;
         internal int operationVersion=0;
         internal bool busy=false;
@@ -143,6 +147,8 @@ internal sealed partial class FloatingPanelWindow : Window
     internal string ResponseModelName=>latestResponseModel?.Text??"";
     internal MarkdownMessageView? ResponseView=>latestResponse;
     internal bool CanSendFromComposer=>send.IsEnabled;
+    internal byte[] CurrentImage=>png;
+    internal bool HasScreenshotPreview=>thumbnail.Visibility==Visibility.Visible&&draftImage.Source!=null;
     internal Button ComposerSendButton=>send;
     internal ComboBox ComposerModeSelector=>composerMode;
     private string ComposerTarget=>composerMode.SelectedIndex==1?"Agent":"Codex";
@@ -684,14 +690,28 @@ internal sealed partial class FloatingPanelWindow : Window
     public async Task PresentAsync(byte[] image,PixelRect region,Func<bool>? stillCurrent=null)
     {
         if(closed)return;
-        var view=current;
-        int version=++view.imageVersion;
-        var bitmap=await LoadBitmapAsync(image,160);if(closed||version!=view.imageVersion||stillCurrent?.Invoke()==false)return;
-        view.png=image;view.submittedTargets.Clear();view.prompt.Text="";messageVisible=true;
-        view.dimensions.Text=$"当前截图 · {region.Width} × {region.Height}";view.thumbnail.Visibility=Visibility.Visible;
+        var origin=current;
+        int version=++captureVersion;
+        var bitmap=await LoadBitmapAsync(image,160);if(closed||version!=captureVersion||stillCurrent?.Invoke()==false)return;
+        latestCapture=new(image,bitmap,region);messageVisible=true;
+        ApplyLatestCapture(current);
+        if(!busy&&ReferenceEquals(origin,current))prompt.Text="";
+        UpdateButtons();Open();
+        if(!busy&&ReferenceEquals(origin,current))prompt.Focus(FocusState.Programmatic);
+    }
+    private void ApplyLatestCapture(ConversationView view)
+    {
+        var captureDraft=latestCapture;
+        if(captureDraft==null||restoring||view.Content==null||view.busy||ReferenceEquals(view.Capture,captureDraft))return;
+        // Active requests own their snapshot. Other tabs adopt the latest capture only once,
+        // so returning to a submitted tab cannot unlock the same screenshot for a duplicate send.
+        view.Capture=captureDraft;view.imageVersion++;
+        view.png=captureDraft.Png;view.submittedTargets.Clear();view.Data.DraftImage=null;
+        view.dimensions.Text=$"当前截图 · {captureDraft.Region.Width} × {captureDraft.Region.Height}";
+        view.thumbnail.Visibility=Visibility.Visible;view.draftImage.Source=captureDraft.Preview;
         bool hasWorkspace=app.Codex.IsProvider?view.Data.Workspace?.DirectoryPath!=null:view.Data.Workspace!=null;
-        view.draftImage.Source=bitmap;SetStatus(hasWorkspace?"截图已就绪":app.Codex.IsProvider?"截图已就绪 · 请选择 Codex 工作目录":"截图已就绪 · 请选择 Codex 工作区",destination:view);PersistImage(view,image);if(ReferenceEquals(view,current)){UpdateButtons();Open();}
-        if(ReferenceEquals(view,current))view.prompt.Focus(FocusState.Programmatic);
+        SetStatus(hasWorkspace?"截图已就绪":app.Codex.IsProvider?"截图已就绪 · 请选择 Codex 工作目录":"截图已就绪 · 请选择 Codex 工作区",destination:view);
+        PersistImage(view,captureDraft.Png);
     }
     private static async Task<BitmapImage> LoadBitmapAsync(byte[] image,int width=0)
     {
@@ -775,6 +795,7 @@ internal sealed partial class FloatingPanelWindow : Window
     }
     private void UpdateButtons()
     {
+        ApplyLatestCapture(current);
         codex.IsEnabled=CanSendTo("Codex");agent.IsEnabled=CanSendTo("Agent");
         send.IsEnabled=ComposerTarget=="Agent"?agent.IsEnabled:codex.IsEnabled;composerMode.IsEnabled=!busy;
         Label(send,(png.Length>0?"发送截图和提示词到 ":"发送提示词到 ")+ComposerTarget);UpdateLayoutDimensions();

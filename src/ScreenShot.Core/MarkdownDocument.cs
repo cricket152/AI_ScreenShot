@@ -5,7 +5,7 @@ namespace ScreenShot.Core;
 [Flags]
 public enum MarkdownTextStyle { None=0, Bold=1, Italic=2, Strike=4, Code=8 }
 public enum MarkdownTableAlignment { Left, Center, Right }
-public sealed record MarkdownInline(string Text,MarkdownTextStyle Style=MarkdownTextStyle.None,Uri? Link=null);
+public sealed record MarkdownInline(string Text,MarkdownTextStyle Style=MarkdownTextStyle.None,Uri? Link=null,string? Math=null);
 public abstract record MarkdownBlock;
 public sealed record MarkdownParagraph(IReadOnlyList<MarkdownInline> Inlines) : MarkdownBlock;
 public sealed record MarkdownHeading(int Level,IReadOnlyList<MarkdownInline> Inlines) : MarkdownBlock;
@@ -15,6 +15,7 @@ public sealed record MarkdownListItem(int Depth,int? Number,IReadOnlyList<Markdo
 public sealed record MarkdownList(IReadOnlyList<MarkdownListItem> Items) : MarkdownBlock;
 public sealed record MarkdownTable(IReadOnlyList<IReadOnlyList<IReadOnlyList<MarkdownInline>>> Rows,IReadOnlyList<MarkdownTableAlignment> Alignments) : MarkdownBlock;
 public sealed record MarkdownRule : MarkdownBlock;
+public sealed record MarkdownMathBlock(string LaTeX,string Source) : MarkdownBlock;
 
 /// <summary>Small native-message Markdown dialect. HTML and images remain literal text.</summary>
 public sealed record MarkdownDocument(IReadOnlyList<MarkdownBlock> Blocks)
@@ -55,6 +56,8 @@ public sealed record MarkdownDocument(IReadOnlyList<MarkdownBlock> Blocks)
                 }
                 blocks.Add(new MarkdownCodeBlock(string.Join('\n',code),language,closed));continue;
             }
+            if(TryMathBlock(lines,index,out int mathLines,out var mathBlock))
+            {blocks.Add(mathBlock);index+=mathLines;continue;}
             if(TryHeading(line,out int level,out string heading))
             {blocks.Add(new MarkdownHeading(level,ParseInlines(heading)));index++;continue;}
             if(IsRule(line)){blocks.Add(new MarkdownRule());index++;continue;}
@@ -99,7 +102,30 @@ public sealed record MarkdownDocument(IReadOnlyList<MarkdownBlock> Blocks)
         return blocks;
     }
 
-    private static bool IsBlockStart(string line)=>TryFence(line,out _,out _,out _)||TryHeading(line,out _,out _)||TryQuote(line,out _)||TryListMarker(line,out _,out _,out _)||IsRule(line);
+    private static bool IsBlockStart(string line)=>TryFence(line,out _,out _,out _)||TryHeading(line,out _,out _)||TryQuote(line,out _)||TryListMarker(line,out _,out _,out _)||IsRule(line)||line.TrimStart().StartsWith(@"\[")||line.TrimStart().StartsWith("$$",StringComparison.Ordinal);
+
+    private static bool TryMathBlock(string[] lines,int index,out int consumed,out MarkdownBlock block)
+    {
+        consumed=0;block=null!;string opening=lines[index].Trim();
+        string? delimiter=opening.StartsWith(@"\[",StringComparison.Ordinal)?@"\[":opening.StartsWith("$$",StringComparison.Ordinal)?"$$":null;
+        if(delimiter==null)return false;
+        string closing=delimiter=="$$"?"$$":@"\]";
+        for(int cursor=index;cursor<lines.Length;cursor++)
+        {
+            string line=lines[cursor];int start=cursor==index?line.IndexOf(delimiter,StringComparison.Ordinal)+2:0;
+            int end=FindDelimiter(line,start,closing,exactRun:delimiter=="$$");
+            if(end>=0&&string.IsNullOrWhiteSpace(line[(end+2)..]))
+            {
+                consumed=cursor-index+1;string source=string.Join('\n',lines,index,consumed);
+                int contentStart=source.IndexOf(delimiter,StringComparison.Ordinal)+2;
+                int contentEnd=source.Length-(line.Length-end);
+                block=new MarkdownMathBlock(source[contentStart..contentEnd],source);return true;
+            }
+            if(end>=0)return false;
+        }
+        // An unfinished streamed formula is opaque: Markdown must not consume its escapes.
+        consumed=lines.Length-index;block=new MarkdownParagraph([new(string.Join('\n',lines,index,consumed))]);return true;
+    }
     private static int LeadingSpaces(string line)
     {
         int spaces=0;foreach(char value in line){if(value==' ')spaces++;else if(value=='\t')spaces+=4;else break;}return spaces;
@@ -182,6 +208,7 @@ public sealed record MarkdownDocument(IReadOnlyList<MarkdownBlock> Blocks)
         for(int index=0;index<value.Length;index++)
         {
             if(IsEscaped(value,index))continue;
+            if(codeRun==0&&TryInlineMath(value,index,out int mathLength,out _)){index+=mathLength-1;continue;}
             if(value[index]=='`')
             {
                 int run=1;while(index+run<value.Length&&value[index+run]=='`')run++;
@@ -203,7 +230,11 @@ public sealed record MarkdownDocument(IReadOnlyList<MarkdownBlock> Blocks)
         for(int index=0;index<text.Length;)
         {
             char value=text[index];
-            if(value=='\\'&&index+1<text.Length&&"\\`*_{}[]()#+-.!|>~".Contains(text[index+1]))
+            if((!style.HasFlag(MarkdownTextStyle.Code)&&link==null)&&TryInlineMath(text,index,out int mathLength,out string? math))
+            {
+                Flush();output.Add(new MarkdownInline(text.Substring(index,mathLength),style,link,math));index+=mathLength;continue;
+            }
+            if(value=='\\'&&index+1<text.Length&&"\\`*_{}[]()#+-.!|>~$".Contains(text[index+1]))
             {literal.Append(text[index+1]);index+=2;continue;}
             if(value=='`')
             {
@@ -247,6 +278,27 @@ public sealed record MarkdownDocument(IReadOnlyList<MarkdownBlock> Blocks)
         }
         Flush();
     }
+    private static bool TryInlineMath(string text,int index,out int consumed,out string? math)
+    {
+        consumed=0;math=null;
+        string? open=text[index]=='\\'&&index+1<text.Length&&text[index+1] is '(' or '['?text.Substring(index,2):
+            text[index]=='$'?(index+1<text.Length&&text[index+1]=='$'?"$$":"$"):null;
+        if(open==null||IsEscaped(text,index))return false;
+        if(open=="$"&&(index+1==text.Length||char.IsWhiteSpace(text[index+1])||index>0&&char.IsDigit(text[index-1])))return false;
+        string close=open==@"\("?@"\)":open==@"\["?@"\]":open;
+        int end=index+open.Length;
+        while((end=FindDelimiter(text,end,close,exactRun:open[0]=='$'))>=0)
+        {
+            if(open!="$"||end>index+1&&!char.IsWhiteSpace(text[end-1])&&(end+1==text.Length||!char.IsDigit(text[end+1])))break;
+            end+=close.Length;
+        }
+        if(end<0)
+        {
+            if(open=="$"&&text.AsSpan(index+1).IndexOfAny("\\_^={")<0)return false;
+            consumed=text.Length-index;return true;
+        }
+        consumed=end+close.Length-index;math=text.Substring(index+open.Length,end-index-open.Length);return true;
+    }
     private static bool TryLink(string text,int index,out int consumed,out string label,out string destination)
     {
         consumed=0;label="";destination="";int open=text[index]=='!'?index+1:index,level=1,close=-1;
@@ -274,6 +326,7 @@ public sealed record MarkdownDocument(IReadOnlyList<MarkdownBlock> Blocks)
         for(int index=start;index<text.Length;index++)
         {
             if(IsEscaped(text,index))continue;
+            if(TryInlineMath(text,index,out int mathLength,out _)){index+=mathLength-1;continue;}
             if(text[index]=='`')
             {
                 int codeRun=1;while(index+codeRun<text.Length&&text[index+codeRun]=='`')codeRun++;
@@ -310,7 +363,7 @@ public sealed record MarkdownDocument(IReadOnlyList<MarkdownBlock> Blocks)
     private static void Append(List<MarkdownInline> output,string text,MarkdownTextStyle style,Uri? link)
     {
         if(text.Length==0)return;
-        if(output.Count>0&&output[^1].Style==style&&output[^1].Link==link)output[^1]=output[^1] with {Text=output[^1].Text+text};
+        if(output.Count>0&&output[^1].Style==style&&output[^1].Link==link&&output[^1].Math==null)output[^1]=output[^1] with {Text=output[^1].Text+text};
         else output.Add(new MarkdownInline(text,style,link));
     }
 }

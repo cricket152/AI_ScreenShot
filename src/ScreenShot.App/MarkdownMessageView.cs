@@ -15,6 +15,7 @@ internal sealed class MarkdownMessageView : UserControl
     internal Button? CopyButton {get;}
     internal Task? CopyTask {get;private set;}
     private readonly TextBlock copyFeedback=new(){VerticalAlignment=VerticalAlignment.Center};
+    private readonly List<(Viewbox Visual,double Indent,bool Display)> equations=[];
     private readonly DispatcherQueueTimer renderTimer;
     private string text="";
     private bool renderingPending,suspended;
@@ -22,6 +23,8 @@ internal sealed class MarkdownMessageView : UserControl
     internal MarkdownDocument Document {get;private set;}=MarkdownDocument.Parse("");
     internal int RenderedBlockCount {get;private set;}
     internal int RenderedControlCount {get;private set;}
+    internal int RenderedMathCount {get;private set;}
+    internal int MathFallbackCount {get;private set;}
     public string Text
     {
         get=>text;
@@ -51,6 +54,8 @@ internal sealed class MarkdownMessageView : UserControl
         renderTimer.Tick+=(_,_)=>FlushRendering();
         Unloaded+=(_,_)=>{suspended=true;renderTimer.Stop();afterRender=null;};
         Loaded+=(_,_)=>{suspended=false;FlushRendering();};
+        ActualThemeChanged+=(_,_)=>{if(RenderedMathCount>0){renderingPending=true;FlushRendering();}};
+        SelectionSurface.SizeChanged+=(_,_)=>ResizeEquations();
     }
 
     private async Task CopyAsync(Func<string,Task> copyText)
@@ -80,7 +85,7 @@ internal sealed class MarkdownMessageView : UserControl
     {
         renderTimer.Stop();if(!renderingPending)return;
         var callback=afterRender;afterRender=null;
-        Document=MarkdownDocument.Parse(text);SelectionSurface.Blocks.Clear();RenderedBlockCount=0;RenderedControlCount=1;
+        Document=MarkdownDocument.Parse(text);SelectionSurface.Blocks.Clear();equations.Clear();RenderedBlockCount=0;RenderedControlCount=1;RenderedMathCount=0;MathFallbackCount=0;
         // Every visible character belongs to one document, including code and table cells.
         // Child text controls inside InlineUIContainer would split selection again.
         AddBlocks(Document.Blocks);renderingPending=false;
@@ -96,6 +101,8 @@ internal sealed class MarkdownMessageView : UserControl
             switch(block)
             {
                 case MarkdownParagraph paragraph:AddParagraph(paragraph.Inlines,indent);break;
+                case MarkdownMathBlock math:
+                    var formula=AddParagraph([],indent);AddMath(formula,math.LaTeX,math.Source,true);break;
                 case MarkdownHeading heading:
                     var title=AddParagraph(heading.Inlines,indent);title.FontSize=heading.Level==1?UiDesign.Number("SS.Typography.Section"):UiDesign.Number("SS.Typography.Body");title.FontWeight=Microsoft.UI.Text.FontWeights.SemiBold;break;
                 case MarkdownCodeBlock code:
@@ -134,10 +141,38 @@ internal sealed class MarkdownMessageView : UserControl
         AddInlines(paragraph,inlines);SelectionSurface.Blocks.Add(paragraph);return paragraph;
     }
 
-    private static void AddInlines(Paragraph paragraph,IReadOnlyList<MarkdownInline> inlines)
+    private void AddMath(Paragraph paragraph,string latex,string source,bool display)
+    {
+        var canvas=NativeMathRenderer.TryRender(latex,display,SelectionSurface.Foreground,SelectionSurface.FontSize);
+        if(canvas==null){MathFallbackCount++;paragraph.Inlines.Add(new Run{Text=source,FontFamily=new FontFamily("Consolas")});return;}
+        // Keep a textual equivalent in the same document so SelectAll/Ctrl+C include formulas.
+        // The vector object is noninteractive and cannot introduce a second selection owner.
+        paragraph.Inlines.Add(new Run{Text=source,FontSize=0.01,Foreground=new SolidColorBrush(Microsoft.UI.Colors.Transparent)});
+        var equation=new Viewbox{Child=canvas,Stretch=Stretch.Uniform,StretchDirection=StretchDirection.DownOnly,IsHitTestVisible=false};
+        equations.Add((equation,paragraph.Margin.Left,display));ResizeEquations();
+        paragraph.Inlines.Add(new InlineUIContainer{Child=equation});RenderedMathCount++;
+    }
+
+    private void ResizeEquations()
+    {
+        if(SelectionSurface.ActualWidth<=0)return;
+        foreach(var (visual,indent,display) in equations)
+        {
+            visual.MaxWidth=Math.Max(1,SelectionSurface.ActualWidth-indent);
+            if(!display&&visual.Child is NativeMathRenderer.MathSurface canvas)
+            {
+                // InlineUIContainer aligns its bottom with the text baseline. Leave the glyph descent below it.
+                double scale=Math.Min(1,visual.MaxWidth/canvas.Width);
+                visual.Margin=new Thickness(0,0,0,-canvas.BaselineDescent*scale);
+            }
+        }
+    }
+
+    private void AddInlines(Paragraph paragraph,IReadOnlyList<MarkdownInline> inlines)
     {
         foreach(var part in inlines)
         {
+            if(part.Math!=null){AddMath(paragraph,part.Math,part.Text,part.Text.StartsWith(@"\[")||part.Text.StartsWith("$$",StringComparison.Ordinal));continue;}
             var run=new Run{Text=part.Text};
             if(part.Style.HasFlag(MarkdownTextStyle.Bold))run.FontWeight=Microsoft.UI.Text.FontWeights.SemiBold;
             if(part.Style.HasFlag(MarkdownTextStyle.Italic))run.FontStyle=Windows.UI.Text.FontStyle.Italic;

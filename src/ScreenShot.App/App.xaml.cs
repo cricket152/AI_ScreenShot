@@ -194,6 +194,7 @@ public partial class App : Application
             var markdown=new MarkdownMessageView{Text="# 标题\n\n**粗体**、*斜体*与 `code`。\n\n> 引用\n\n- 第一项\n- 第二项\n\n```csharp\nConsole.WriteLine(\"fixture\");\n```\n\n| 项目 | 状态 |\n| --- | --- |\n| Markdown | 可用 |"};
             if(markdown.RenderedBlockCount<6||markdown.RenderedControlCount!=1||markdown.SelectionSurface.Blocks.Count<8)throw new InvalidOperationException("Native Markdown did not retain its blocks in one selectable document");
             await RuntimeDiagnostics.VerifyMessageSelectionAsync(Panel,output);
+            await RuntimeDiagnostics.VerifyMathRenderingAsync(output);
             var beforeStreaming=markdown.Document;string table="| 序号 | 状态 |\n| --- | --- |";int renderedCallbacks=0;
             for(int row=0;row<120;row++)
             {
@@ -237,6 +238,7 @@ public partial class App : Application
             string composerChecks=await VerifyComposerAndAgentAsync(fixture);
             composerChecks+=await VerifyTextOnlyComposerAsync();
             composerChecks+=await VerifyConcurrentConversationsAsync();
+            composerChecks+=await VerifyCaptureRoutingAsync(output);
             await File.WriteAllTextAsync(Path.Combine(output,"floating-ui-test.txt"),"PASS: 52 logical pixel native ball, panel creation, empty state and Light/Dark generated previews\nPASS: ball toggles both panels; toolbar arrow collapses independently and restores\nPASS: shared toolbar/message width alignment through production resize callbacks; monitor bounds retained\nPASS: native Markdown controls render headings, emphasis, quote, list, code and table\nPASS: 120 streaming Markdown snapshots retain raw text immediately, render the latest table once, and flush final content\nPASS: processing state, operation hide/restore, successful capture dismissal retains messages\nPASS: on-top details, concurrent preview replacement, collapsed/operation preview stays closed after decoding\nPASS: hidden ball remains hidden, collapse/reopen, cancelled capture does not reopen\nPASS: closing message panel dismisses capture overlay\n"+fluentChecks+visibilityAndResizeChecks+moveChecks+codexChecks+composerChecks+"No desktop screenshot, clipboard access, browser connection, or real send was performed.\n");
         }
         catch(Exception e){await File.WriteAllTextAsync(Path.Combine(output,"floating-ui-test.txt"),"FAIL: "+e.GetType().Name+": "+e.Message+"\n"+e.StackTrace);Environment.ExitCode=1;}

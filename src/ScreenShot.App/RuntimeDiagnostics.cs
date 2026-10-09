@@ -8,6 +8,60 @@ namespace ScreenShot.App;
 
 internal static class RuntimeDiagnostics
 {
+    internal static async Task<string> VerifyMathRenderingAsync(string output)
+    {
+        const string fixture="## 数学输出测试\n\n图中主要转移：\n\\[\n1 \\xrightarrow{w} 2 \\quad 1 \\xrightarrow{e} 5\n\\]\n\nNFA 的字母表 \\(\\Sigma=\\{w,e,b\\}\\)，路径 \\(1\\to2\\to3\\to4\\)。\n\n分数与根式：\n$$\\frac{a_1+b^2}{\\sqrt{x+1}}$$\n\n概率：$P(A\\mid B)=\\frac{P(B\\mid A)P(A)}{P(B)}$\n\n$$\\sum_{i=1}^{n}i=\\frac{n(n+1)}{2} \\qquad \\int_0^1 x^2\\,dx=\\frac{1}{3}$$\n\n$$\\begin{pmatrix}1&2\\\\3&4\\end{pmatrix}$$\n\n$$\\operatorname{argmax}_{x\\in\\mathbb{R}} f(x) \\quad \\alpha+\\beta\\leq\\gamma$$\n\n最后的专业术语：ε-closure / Bayes / NFA。";
+        string? copied=null;var message=new MarkdownMessageView(value=>{copied=value;return Task.CompletedTask;}){Text=fixture};
+        var root=new Grid{Padding=new Thickness(16)};root.Children.Add(new ScrollViewer{Content=message});
+        var window=new Window{Content=root};window.AppWindow.Resize(new Windows.Graphics.SizeInt32(860,880));
+        var foreground=Native.GetForegroundWindow();
+        try
+        {
+            window.Activate();await Task.Delay(100);
+            foreach(var theme in new[]{ElementTheme.Light,ElementTheme.Dark})
+            {
+                root.RequestedTheme=theme;root.Background=new SolidColorBrush(theme==ElementTheme.Dark?Microsoft.UI.ColorHelper.FromArgb(255,30,30,30):Microsoft.UI.Colors.White);
+                await Task.Delay(100);root.UpdateLayout();
+                await File.WriteAllBytesAsync(Path.Combine(output,$"math-render-{theme}.png"),await RenderAsync(root));
+                if(message.RenderedMathCount!=8||message.MathFallbackCount!=0)throw new InvalidOperationException($"Math fixture did not typeset every equation: rendered={message.RenderedMathCount}, fallback={message.MathFallbackCount}");
+                var paths=Descendants<Microsoft.UI.Xaml.Shapes.Path>(message).ToArray();
+                if(paths.Length<50||paths.Any(path=>path.IsHitTestVisible))throw new InvalidOperationException("Equations did not render as noninteractive native vector geometry");
+                message.SelectionSurface.SelectAll();
+                foreach(string expected in new[]{@"\xrightarrow{w}",@"\Sigma",@"\frac",@"\begin{pmatrix}","ε-closure / Bayes / NFA"})
+                    if(!message.SelectionSurface.SelectedText.Contains(expected,StringComparison.Ordinal))throw new InvalidOperationException("Full-message selection dropped equation source or terminology");
+                await File.WriteAllBytesAsync(Path.Combine(output,$"math-render-{theme}.png"),await RenderAsync(root));
+            }
+            ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(message.CopyButton!).GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
+            await Task.Delay(30);await message.CopyTask!.WaitAsync(TimeSpan.FromSeconds(5));
+            if(copied!=fixture)throw new InvalidOperationException("Copy changed mathematical reply source");
+            message.Text=@"专业术语：\(\text{期望值}=\mathbb{E}[X]\)；后续正文保持可选。";root.UpdateLayout();
+            if(message.RenderedMathCount!=1||message.MathFallbackCount!=0)throw new InvalidOperationException("Chinese mathematical terminology did not typeset");
+            await File.WriteAllBytesAsync(Path.Combine(output,"math-render-terminology.png"),await RenderAsync(root));
+            message.Text="前段\n\n$$"+string.Join("+",Enumerable.Repeat(@"\frac{x_i^2}{1+\alpha}",16))+"$$\n\n末段";
+            window.AppWindow.Resize(new Windows.Graphics.SizeInt32(380,520));await Task.Delay(100);root.UpdateLayout();
+            var fitted=Descendants<Viewbox>(message).Single();
+            if(fitted.ActualWidth>message.SelectionSurface.ActualWidth+1||fitted.ActualWidth<=0||message.RenderedMathCount!=1)throw new InvalidOperationException("Wide equation does not fit the narrow message area");
+            message.SelectionSurface.Select(message.SelectionSurface.Blocks[0].ContentStart,message.SelectionSurface.Blocks[^1].ContentEnd);
+            if(!message.SelectionSurface.SelectedText.Contains(@"\frac{x_i^2}")||!message.SelectionSurface.SelectedText.Contains("末段"))throw new InvalidOperationException("Cross-paragraph selection stopped at a vector equation");
+            const string unsupported="绘图原文：\n\n```tikz\n\\draw (0,0) -- (1,1);\n```\n\n\\[\\unsupportedmacro{secret}\\]\n\n末段";
+            message.Text=unsupported;root.UpdateLayout();message.SelectionSurface.SelectAll();
+            if(message.MathFallbackCount!=1||!message.SelectionSurface.SelectedText.Contains(@"\unsupportedmacro{secret}")||!message.SelectionSurface.SelectedText.Contains(@"\draw (0,0) -- (1,1);"))throw new InvalidOperationException("Unsupported formula or drawing syntax was lost");
+            string partial=@"\(\frac{a_1}";message.SetStreamingText(partial);await Task.Delay(120);
+            message.SelectionSurface.SelectAll();if(message.SelectionSurface.SelectedText.Trim()!=partial||message.RenderedMathCount!=0)throw new InvalidOperationException("Streaming partial equation lost its delimiters");
+            message.Text=@"\(\frac{a_1}{b^2}\)";root.UpdateLayout();
+            if(message.RenderedMathCount!=1)throw new InvalidOperationException("Completed streamed fraction did not typeset");
+            string deep=string.Concat(Enumerable.Repeat("{",64))+"x"+string.Concat(Enumerable.Repeat("}",64));
+            if(NativeMathRenderer.TryRender(deep,true,message.SelectionSurface.Foreground,14)!=null)throw new InvalidOperationException("Excessively nested math bypassed the rendering bound");
+            foreach(string invalid in new[]{string.Concat(Enumerable.Repeat(@"\sqrt",300))+"x",new string('}',64)+new string('{',64),"\ud800",@"\begin{array}{|}x\end{array}"})
+                if(NativeMathRenderer.TryRender(invalid,true,message.SelectionSurface.Foreground,14)!=null)throw new InvalidOperationException("Invalid or excessively complex math bypassed source fallback");
+            foreach(string valid in new[]{@"\alpha=\beta",@"\alpha'",@"\alpha*2",@"\text{期望值}=\mathbb{E}[X]",@"\begin{cases}x^2&x\geq0\\-x&x<0\end{cases}",@"\begin{aligned}a&=b+c\\d&=e\end{aligned}",@"\xleftarrow[b]{a}"})
+                if(NativeMathRenderer.TryRender(valid,true,message.SelectionSurface.Foreground,14)==null)throw new InvalidOperationException("Professional math regression failed");
+            string result="PASS: native vector math renders annotated NFA arrows, inline/display delimiters, fractions, roots, scripts, sums/integrals, matrices, Greek/blackboard symbols and operator names in Light/Dark\nPASS: Chinese mathematical terminology, command boundaries, cases/aligned, narrow-window fitting and selection across a vector equation\nPASS: one selection document includes formula source and professional terminology; full copy is lossless; unsupported/drawing syntax, streaming partial/completed expressions and complexity limits retain safe text fallback\nNo user clipboard, network renderer or model request was used.\n";
+            await File.WriteAllTextAsync(Path.Combine(output,"math-render-test.txt"),result);return result;
+        }
+        finally{window.Close();if(foreground!=0)Native.SetForegroundWindow(foreground);}
+    }
+
     internal static async Task<string> VerifyMessageSelectionAsync(FloatingPanelWindow panel,string output)
     {
         const string fixture="# 选择测试\n\n第一段 **粗体** 与 [链接](https://example.test)。\n\n第二段 *斜体* 和 ~~删除线~~。\n\n> 引用文字\n>\n> > 内层引用\n\n1. 有序条目\n  - 嵌套条目\n\n```csharp\nvar value = \"代码文字\";\nConsole.WriteLine(value);\n```\n\n| 名称 | 内容 |\n| --- | --- |\n| 表格文字 | 中文 😀 |\n\n---\n\n最后一段文字";
@@ -956,12 +1010,12 @@ internal static class RuntimeDiagnostics
         encoder.SetPixelData(BitmapPixelFormat.Bgra8,BitmapAlphaMode.Premultiplied,(uint)bitmap.PixelWidth,(uint)bitmap.PixelHeight,96,96,pixels);await encoder.FlushAsync();
         using var encoded=new DataReader(stream.GetInputStreamAt(0));await encoded.LoadAsync((uint)stream.Size);byte[] result=new byte[(int)stream.Size];encoded.ReadBytes(result);return result;
     }
-    public static async Task<byte[]> FixtureAsync()
+    public static async Task<byte[]> FixtureAsync(byte red=180)
     {
         const int width=320,height=200;var pixels=new byte[width*height*4];
         for(int y=0;y<height;y++)for(int x=0;x<width;x++)
         {
-            int offset=(y*width+x)*4;pixels[offset]=(byte)(x*255/width);pixels[offset+1]=(byte)(y*255/height);pixels[offset+2]=180;pixels[offset+3]=255;
+            int offset=(y*width+x)*4;pixels[offset]=(byte)(x*255/width);pixels[offset+1]=(byte)(y*255/height);pixels[offset+2]=red;pixels[offset+3]=255;
         }
         using var stream=new InMemoryRandomAccessStream();var encoder=await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId,stream);
         encoder.SetPixelData(BitmapPixelFormat.Bgra8,BitmapAlphaMode.Ignore,width,height,96,96,pixels);await encoder.FlushAsync();

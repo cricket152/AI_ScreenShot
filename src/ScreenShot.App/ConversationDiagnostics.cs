@@ -5,6 +5,106 @@ namespace ScreenShot.App;
 
 public partial class App
 {
+    private async Task<string> VerifyCaptureRoutingAsync(string output)
+    {
+        string storage=Path.Combine(Path.GetTempPath(),"AIScreenShot-capture-routing-"+Guid.NewGuid().ToString("N"));
+        var previous=Panel;
+        FloatingPanelWindow? panel=null;
+        var requests=new List<(string Target,SendRequest Request)>();
+        var pending=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool retryFailed=true;
+        Workspace Destination(string name)
+        {
+            string path=Path.Combine(storage,"workspaces",name);Directory.CreateDirectory(path);return new(name,path);
+        }
+        async Task<SendResult> Send(string target,SendRequest request,Action<CodexReplyUpdate> update,CancellationToken token)
+        {
+            if(request.IsTitleRequest){update(new(CodexReplyPhase.Completed,"生成的测试标题"));return new(SendState.Sent,"title");}
+            requests.Add((target,request));
+            if(request.Prompt=="retry fixture"&&retryFailed){retryFailed=false;return new(SendState.Failed,"generated failure");}
+            if(request.Workspace?.Name=="third"&&target=="Codex")return new(SendState.Unknown,"generated unknown receipt");
+            update(new(CodexReplyPhase.Submitted));
+            if(request.Prompt=="slow fixture")await pending.Task.WaitAsync(token);
+            update(new(CodexReplyPhase.Completed,"生成的截图测试回复"));return new(SendState.Sent,"completed");
+        }
+        Task<SendResult> Codex(SendRequest request,Action<CodexReplyUpdate> update,CancellationToken token)=>Send("Codex",request,update,token);
+        Task<SendResult> Agent(SendRequest request,Action<AgentReplyUpdate> update,CancellationToken token)=>Send("Agent",request,value=>update(new(value.Phase switch{CodexReplyPhase.Submitted=>AgentReplyPhase.Submitted,CodexReplyPhase.Completed=>AgentReplyPhase.Completed,_=>AgentReplyPhase.Thinking},value.Text,value.Status)),token);
+        async Task Invoke()
+        {
+            if(!panel!.CanSendFromComposer)throw new InvalidOperationException("Screenshot composer is unexpectedly disabled");
+            ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(panel.ComposerSendButton).GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
+            await Task.Delay(30);await panel.ComposerSendTask!.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        void VerifyImage(byte[] expected)
+        {
+            if(!panel!.CurrentImage.SequenceEqual(expected)||!panel.HasScreenshotPreview)throw new InvalidOperationException("Selected conversation lost the latest capture or its thumbnail");
+        }
+        try
+        {
+            Directory.CreateDirectory(storage);
+            byte[] firstImage=await RuntimeDiagnostics.FixtureAsync(),secondImage=await RuntimeDiagnostics.FixtureAsync(70);
+            panel=new FloatingPanelWindow(this,sendCodex:Codex,sendAgent:Agent,conversationDirectory:storage);Panel=panel;panel.Open();
+            string first=panel.CurrentConversationId;panel.SetWorkspaceForDiagnostic(Destination("first"));
+            panel.NewConversation();string second=panel.CurrentConversationId;
+            panel.SetWorkspaceForDiagnostic(Destination("second"));panel.ComposerModeSelector.SelectedIndex=1;panel.PromptText="existing draft fixture";
+            panel.SelectConversationForDiagnostic(first);await panel.PresentAsync(firstImage,new(0,0,320,200));
+            panel.SelectConversationForDiagnostic(second);VerifyImage(firstImage);
+            if(panel.PromptText!="existing draft fixture"||!panel.CanSendToCodex||!panel.CanSendToAgent)throw new InvalidOperationException("Capture adoption changed another tab's draft or disabled a target");
+            await Invoke();
+            if(requests.Count!=1||requests[0].Target!="Agent"||requests[0].Request.Workspace!=Destination("second")||!requests[0].Request.Png.SequenceEqual(firstImage))throw new InvalidOperationException("Existing tab sent to the capture origin instead of its own workspace");
+            panel.SelectConversationForDiagnostic(first);panel.ComposerModeSelector.SelectedIndex=0;await Invoke();
+            if(requests[^1].Target!="Codex"||requests[^1].Request.Workspace!=Destination("first")||!requests[^1].Request.Png.SequenceEqual(firstImage))throw new InvalidOperationException("Original tab lost its capture or Codex destination");
+            int fileCount=Directory.GetFiles(Path.Combine(storage,"screenshots")).Length;
+            panel.SelectConversationForDiagnostic(second);panel.SelectConversationForDiagnostic(first);
+            if(panel.CanSendToCodex||!panel.CanSendToAgent||Directory.GetFiles(Path.Combine(storage,"screenshots")).Length!=fileCount)throw new InvalidOperationException("Switching back unlocked a submitted capture or wrote duplicate draft images");
+            panel.NewConversation();string third=panel.CurrentConversationId;panel.SetWorkspaceForDiagnostic(Destination("third"));VerifyImage(firstImage);await Invoke();
+            if(requests[^1].Request.Workspace!=Destination("third")||!requests[^1].Request.Png.SequenceEqual(firstImage)||panel.CanSendToCodex)throw new InvalidOperationException("Post-capture new tab cannot send or lost Unknown protection");
+            panel.CloseCurrentConversation();panel.SelectConversationForDiagnostic(third);
+            if(panel.CanSendToCodex)throw new InvalidOperationException("Tab switching unlocked an Unknown capture submission");
+            panel.ComposerModeSelector.SelectedIndex=1;panel.PromptText="retry fixture";await Invoke();
+            if(!panel.CanSendFromComposer)throw new InvalidOperationException("Failed image send cannot retry");
+            await Invoke();if(panel.CanSendFromComposer)throw new InvalidOperationException("Sent image retry became duplicate-send eligible");
+
+            panel.NewConversation();string fourth=panel.CurrentConversationId;panel.SetWorkspaceForDiagnostic(Destination("fourth"));panel.PromptText="slow fixture";
+            var slowSend=panel.SendAgentAsync();await Task.Delay(60);
+            if(!panel.IsBusy||slowSend.IsCompleted)throw new InvalidOperationException("Generated pending send did not start");
+            SendRequest snapshot=requests[^1].Request;
+            panel.SelectConversationForDiagnostic(first);await panel.PresentAsync(secondImage,new(0,0,320,200));
+            panel.SelectConversationForDiagnostic(fourth);VerifyImage(firstImage);
+            if(!panel.IsBusy||panel.CanSendFromComposer)throw new InvalidOperationException("Adopting another capture mutated an active conversation's request");
+            panel.NewConversation();VerifyImage(secondImage);panel.PromptText="new while busy fixture";await Invoke();
+            if(!requests[^1].Request.Png.SequenceEqual(secondImage)||!snapshot.Png.SequenceEqual(firstImage))throw new InvalidOperationException("New tab did not receive the latest image or mutated the pending snapshot");
+            pending.TrySetResult();await slowSend.WaitAsync(TimeSpan.FromSeconds(5));
+            panel.SelectConversationForDiagnostic(fourth);VerifyImage(secondImage);
+            if(!panel.CanSendFromComposer)throw new InvalidOperationException("Completed worker locked a newer screenshot");
+            panel.PromptText="after busy fixture";await Invoke();
+            if(!requests[^1].Request.Png.SequenceEqual(secondImage))throw new InvalidOperationException("Completed worker sent its old image instead of the new capture");
+            using(var store=new ConversationStore(storage))
+            {
+                var history=store.Load().Single(chat=>chat.Id==fourth);
+                var user=history.Messages.Where(message=>message.Role=="user").ToArray();
+                if(user.Length!=2||!store.ReadImage(user[0].Image).SequenceEqual(firstImage)||!store.ReadImage(user[1].Image).SequenceEqual(secondImage)||!store.ReadImage(history.DraftImage).SequenceEqual(secondImage))throw new InvalidOperationException("Capture routing replaced historical message images or saved a mismatched draft");
+            }
+            await panel.PresentAsync(firstImage,new(0,0,320,200),()=>false);panel.NewConversation();VerifyImage(secondImage);
+            panel.SelectConversationForDiagnostic(second);panel.PromptText="decode target draft fixture";panel.SelectConversationForDiagnostic(first);
+            var decoded=panel.PresentAsync(firstImage,new(0,0,320,200));panel.SelectConversationForDiagnostic(second);await decoded;VerifyImage(firstImage);
+            if(panel.PromptText!="decode target draft fixture")throw new InvalidOperationException("Switching during capture decoding erased the destination's draft");
+            var stale=panel.PresentAsync(firstImage,new(0,0,320,200));var latest=panel.PresentAsync(secondImage,new(0,0,320,200));await Task.WhenAll(stale,latest);VerifyImage(secondImage);
+            await File.WriteAllBytesAsync(Path.Combine(output,"capture-routing.png"),await RuntimeDiagnostics.RenderAsync((FrameworkElement)panel.Content));
+            panel.Close();panel=new FloatingPanelWindow(this,sendCodex:Codex,sendAgent:Agent,conversationDirectory:storage);Panel=panel;panel.Open();await Task.Delay(100);VerifyImage(secondImage);
+            panel.Close();panel=new FloatingPanelWindow(this,sendCodex:Codex,sendAgent:Agent);Panel=panel;
+            await panel.PresentAsync(firstImage,new(0,0,320,200));panel.NewConversation();VerifyImage(firstImage);
+            if(!panel.CanSendFromComposer)throw new InvalidOperationException("In-memory conversation adoption requires available storage");
+            string result="PASS: latest screenshot and native thumbnail follow existing/new/reopened conversation tabs with their own workspaces, modes and prompt drafts; native Send Invoke delivers exact image and destination\nPASS: per-tab/target Sent and Unknown locks survive switching; Failed remains retryable; active workers keep snapshots, later adopt the newer capture and retain historical images\nPASS: canceled/stale decodes, switching during decode, persisted draft restoration and storage-free new tabs retain correct capture state\nNo user history, clipboard, desktop capture or real model request was used.\n";
+            await File.WriteAllTextAsync(Path.Combine(output,"capture-routing-test.txt"),result);return result;
+        }
+        finally
+        {
+            pending.TrySetResult();panel?.Close();Panel=previous;
+            if(Directory.Exists(storage))Directory.Delete(storage,true);
+        }
+    }
+
     private async Task<string> VerifyConcurrentConversationsAsync()
     {
         Panel?.Close();
