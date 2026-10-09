@@ -19,6 +19,8 @@ public sealed record SendResult(SendState State, string Message)
 public sealed record Workspace(string Name, string? DirectoryPath=null);
 public sealed record SendRequest(byte[] Png, string Prompt, Workspace? Workspace, string? DefaultPrompt=null)
 {
+    public ConversationContext? Conversation {get;init;}
+    public bool IsTitleRequest {get;init;}
     public const string BuiltInDefaultPrompt="请描述并分析这张截图";
     public bool HasContent => Png.Length>0||!string.IsNullOrWhiteSpace(Prompt);
     public string EffectivePrompt => !string.IsNullOrWhiteSpace(Prompt) ? Prompt :

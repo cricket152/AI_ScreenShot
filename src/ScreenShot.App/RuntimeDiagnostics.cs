@@ -200,6 +200,10 @@ internal static class RuntimeDiagnostics
 
     private static async Task VerifyHostTransparencyAsync(FloatingPanelWindow panel,string output)
     {
+        // Test the unanchored pane boundaries against the generated fixture. The connected tail
+        // is checked separately; it intentionally paints into the padding beside its pane.
+        var ball=((App)Application.Current).Ball;bool ballVisible=ball!=null&&Native.IsWindowVisible(ball.Handle);
+        ball?.AppWindow.Hide();
         var original=panel.Appearance;var root=(FrameworkElement)panel.Content;var foreground=Native.GetForegroundWindow();var originalTheme=root.RequestedTheme;
         int perimeterChecks=0,paneChecks=0,cornerChecks=0;
         uint fixtureColor=0;
@@ -302,7 +306,7 @@ internal static class RuntimeDiagnostics
             if(Native.GetForegroundWindow()!=foreground)throw new InvalidOperationException("Generated transparency check activated a window");
             await File.WriteAllTextAsync(Path.Combine(output,"panel-boundaries.txt"),$"PASS: {perimeterChecks} DWM fixture samples include all four HWND edges, padding, corner and pane gap after attempted native frame restoration.\nPASS: {paneChecks} straight and {cornerChecks} rounded Light/Dark pane edge cases with outlines off / 0.5 / 1 / 3px verify adjacent outer shadow and inner body/outline pixels, plus common material/outline drawing bounds.\nOnly pixels over a generated application-owned color fixture were sampled; no desktop image was captured.\n");
         }
-        finally{Native.DestroyWindow(probeHandle);Native.UnregisterClass(type.ClassName,type.Instance);GC.KeepAlive(procedure);panel.ApplyAppearance(original);root.RequestedTheme=originalTheme;}
+        finally{Native.DestroyWindow(probeHandle);Native.UnregisterClass(type.ClassName,type.Instance);GC.KeepAlive(procedure);panel.ApplyAppearance(original);root.RequestedTheme=originalTheme;if(ballVisible)ball!.AppWindow.Show(false);}
     }
 
     private static async Task VerifyPaneExitPathAsync(FloatingPanelWindow panel,bool systemMotion)
@@ -612,6 +616,140 @@ internal static class RuntimeDiagnostics
             throw new InvalidOperationException("Floating entrance lost the approved artwork");
     }
 
+    internal static async Task<string> VerifyConversationAppearanceAsync(FloatingPanelWindow panel,string output)
+    {
+        var app=(App)Application.Current;var appearance=app.Themes.Appearance;
+        var root=(FrameworkElement)panel.Content;var foreground=Native.GetForegroundWindow();
+        try
+        {
+            for(int i=0;i<8;i++)panel.NewConversation();
+            await Task.Delay(120);
+            if(panel.TabOverflow.Visibility!=Visibility.Visible||panel.TabOverflow.ActualHeight>12||panel.TabOverflow.Maximum<=0)throw new InvalidOperationException("Overflow tabs lack a compact visible scrollbar");
+            panel.TabOverflow.Value=0;await Task.Delay(80);
+            if(panel.TabViewport.HorizontalOffset>1)throw new InvalidOperationException("Tab scrollbar cannot reach the first tab");
+            panel.TabOverflow.Value=panel.TabOverflow.Maximum;await Task.Delay(80);
+            if(Math.Abs(panel.TabViewport.HorizontalOffset-panel.TabViewport.ScrollableWidth)>1)throw new InvalidOperationException("Tab scrollbar cannot reach the final tab");
+            foreach(var theme in new[]{ScreenShot.Core.AppThemeMode.Light,ScreenShot.Core.AppThemeMode.Dark})
+            {
+                app.Themes.Apply(appearance with{Theme=theme,AccentMode=ScreenShot.Core.AccentColorMode.Custom,CustomAccentColor="#37B99A"});
+                await Task.Delay(100);root.UpdateLayout();
+                var tab=panel.SelectedTab;
+                var presenter=Descendants<ContentPresenter>(tab).First(item=>item.Name=="ContentPresenter");
+                if(presenter.Background is not SolidColorBrush fill||fill.Color!=app.Themes.AccentColor)throw new InvalidOperationException("Selected tab does not use the scoped accent");
+                await File.WriteAllBytesAsync(Path.Combine(output,$"floating-tabs-overflow-{theme}.png"),await RenderAsync(root));
+                // Match a user opening the dialog from the active panel; hidden/nonactivated test windows cannot take keyboard focus.
+                panel.Activate();Native.SetForegroundWindow(panel.Handle);
+                var dialog=panel.CreateDeleteDialog("测试对话");
+                var opened=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var dismissed=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                dialog.Opened+=(_,_)=>opened.TrySetResult();
+                dialog.Closed+=(_,_)=>dismissed.TrySetResult();
+                var shown=dialog.ShowAsync();
+                try
+                {
+                    await opened.Task.WaitAsync(TimeSpan.FromSeconds(5));await Task.Delay(100);
+                    var cancel=FloatingPanelWindow.FindDialogButton(dialog,"CloseButton")??throw new InvalidOperationException("Cancel button is absent");
+                    var delete=FloatingPanelWindow.FindDialogButton(dialog,"PrimaryButton")??throw new InvalidOperationException("Delete button is absent");
+                    if(cancel.Background is not SolidColorBrush white||white.Color!=Microsoft.UI.Colors.White||delete.Background is not SolidColorBrush accent||accent.Color!=app.Themes.AccentColor)throw new InvalidOperationException("Delete dialog button colors diverge from white cancel and themed delete");
+                    if(cancel.FocusState==FocusState.Unfocused)
+                    {
+                        var focused=Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(dialog.XamlRoot) as FrameworkElement;
+                        await File.WriteAllTextAsync(Path.Combine(output,"delete-dialog-focus.txt"),$"Cancel loaded={cancel.IsLoaded}, tabstop={cancel.IsTabStop}, enabled={cancel.IsEnabled}, size={cancel.ActualWidth}x{cancel.ActualHeight}, visible={cancel.Visibility}; focused={focused?.GetType().Name}/{focused?.Name}; foregroundOwner={Native.GetForegroundWindow()==panel.Handle}\n");
+                        throw new InvalidOperationException("Delete dialog does not focus Cancel");
+                    }
+                    await File.WriteAllBytesAsync(Path.Combine(output,$"delete-dialog-{theme}.png"),await RenderAsync(dialog));
+                    ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(cancel).GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
+                    await dismissed.Task.WaitAsync(TimeSpan.FromSeconds(3));
+                }
+                finally{dialog.Hide();}
+                if(await shown!=ContentDialogResult.None||dialog.Tag is true)throw new InvalidOperationException("Cancel confirmed deletion");
+                var confirmation=panel.CreateDeleteDialog("测试确认");
+                var confirmationOpened=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                confirmation.Opened+=(_,_)=>confirmationOpened.TrySetResult();
+                var confirmed=confirmation.ShowAsync();
+                try
+                {
+                    await confirmationOpened.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                    await Task.Delay(100);confirmation.UpdateLayout();
+                    var action=FloatingPanelWindow.FindDialogButton(confirmation,"PrimaryButton")??throw new InvalidOperationException("Confirm action is absent");
+                    ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(action).GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
+                    await confirmed;
+                    if(confirmation.Tag is not true)throw new InvalidOperationException("Delete action did not record explicit confirmation");
+                }
+                finally{confirmation.Hide();}
+            }
+        }
+        finally{app.Themes.Apply(appearance);if(Native.GetForegroundWindow()==panel.Handle&&foreground!=0&&Native.IsWindow(foreground))Native.SetForegroundWindow(foreground);}
+        await File.WriteAllTextAsync(Path.Combine(output,"delete-dialog-focus.txt"),"PASS: Light/Dark native Cancel is initially focused, stays white and dismisses without confirming; only explicit Delete records confirmation. No user data was deleted.\n");
+        return "PASS: compact overflow scrollbar reaches first/last tabs; Light/Dark selected tabs and delete buttons follow custom accent, Cancel stays white and initially focused; native Cancel and Delete record distinct confirmation intents without deleting user data\n";
+    }
+    internal static async Task<string> VerifyConversationHistoryAsync(FloatingPanelWindow panel,string storage,ScreenShot.Core.Conversation fixture,string output)
+    {
+        var app=(App)Application.Current;var appearance=app.Themes.Appearance;
+        var root=(FrameworkElement)panel.Content;
+        var foreground=Native.GetForegroundWindow();panel.Activate();Native.SetForegroundWindow(panel.Handle);
+        ContentDialog? active=null;
+        async Task<ContentDialog> WaitForDialog(string title)
+        {
+            for(int attempt=0;attempt<100;attempt++)
+            {
+                active=VisualTreeHelper.GetOpenPopupsForXamlRoot(root.XamlRoot).SelectMany(popup=>Descendants<ContentDialog>(popup.Child)).FirstOrDefault(dialog=>dialog.Title?.ToString()==title&&dialog.IsLoaded);
+                if(active!=null){await Task.Delay(100);active.UpdateLayout();return active;}
+                await Task.Delay(50);
+            }
+            throw new InvalidOperationException("Expected conversation dialog did not open: "+title);
+        }
+        void Invoke(Button button)=>((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(button).GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
+        try
+        {
+            string selected=panel.CurrentConversationId;int open=panel.OpenConversationCount;
+            var historyTask=panel.ShowHistoryAsync();
+            var history=await WaitForDialog("历史对话");
+            for(int pass=0;pass<2;pass++)
+            {
+                var action=Descendants<Button>(history).Single(button=>button.Tag as string==fixture.Id);
+                if(!action.IsEnabled)throw new InvalidOperationException("Idle closed history cannot be deleted");
+                Invoke(action);
+                var confirmation=await WaitForDialog("彻底删除“"+fixture.Title+"”？");
+                if(!ReferenceEquals(confirmation,history))throw new InvalidOperationException("History confirmation opened a competing dialog");
+                Invoke(FloatingPanelWindow.FindDialogButton(confirmation,pass==0?"CloseButton":"PrimaryButton")??throw new InvalidOperationException("Deletion action absent"));
+                history=await WaitForDialog("历史对话");
+                if(historyTask.IsCompleted)throw new InvalidOperationException("History closed instead of refreshing after Cancel/Delete");
+                using var store=new ScreenShot.Core.ConversationStore(storage);
+                bool exists=store.Load().Any(item=>item.Id==fixture.Id);
+                if(exists!=(pass==0)||store.ReadImage(fixture.DraftImage).Length>0!=(pass==0))throw new InvalidOperationException("History Cancel/Delete did not preserve/remove the closed fixture and its image");
+                if(panel.CurrentConversationId!=selected||panel.OpenConversationCount!=open)throw new InvalidOperationException("Deleting closed history changed unrelated open tabs");
+            }
+            if(Descendants<Button>(history).Any(button=>button.Tag as string==fixture.Id))throw new InvalidOperationException("Deleted history remains in the list");
+            history.Hide();await historyTask.WaitAsync(TimeSpan.FromSeconds(5));
+            using(var reopened=new ScreenShot.Core.ConversationStore(storage))
+                if(reopened.Load().Any(item=>item.Id==fixture.Id))throw new InvalidOperationException("Deleted closed history returned after restarting storage");
+            foreach(var theme in new[]{ScreenShot.Core.AppThemeMode.Light,ScreenShot.Core.AppThemeMode.Dark})
+            {
+                app.Themes.Apply(appearance with{Theme=theme,AccentMode=ScreenShot.Core.AccentColorMode.Custom,CustomAccentColor="#37B99A"});await Task.Delay(100);
+                var renameTask=panel.RenameCurrentConversationAsyncForDiagnostic();
+                var rename=await WaitForDialog("重命名对话");var input=(TextBox)rename.Content;
+                var save=FloatingPanelWindow.FindDialogButton(rename,"PrimaryButton")??throw new InvalidOperationException("Rename Save button absent");
+                if(save.Background is not SolidColorBrush accent||accent.Color!=app.Themes.AccentColor)throw new InvalidOperationException("Rename Save does not follow the panel accent");
+                await File.WriteAllBytesAsync(Path.Combine(output,$"rename-dialog-{theme}.png"),await RenderAsync(rename));
+                if(!Descendants<Border>(input).Any(border=>border.BorderBrush is LinearGradientBrush gradient&&gradient.GradientStops.Any(stop=>stop.Color==app.Themes.AccentColor)||border.BorderBrush is SolidColorBrush stroke&&stroke.Color==app.Themes.AccentColor))
+                {
+                    await File.WriteAllTextAsync(Path.Combine(output,"rename-input-brushes.txt"),"focus="+input.FocusState+", expected="+app.Themes.AccentColor+"\n"+string.Join("\n",Descendants<Border>(input).Select(border=>border.Name+" background="+border.Background+" stroke="+(border.BorderBrush is LinearGradientBrush gradient?string.Join(",",gradient.GradientStops.Select(stop=>stop.Color.ToString())):border.BorderBrush?.ToString()))));
+                    throw new InvalidOperationException("Focused rename input does not follow the panel accent");
+                }
+                input.Text="  ";Invoke(save);await Task.Delay(100);
+                if(renameTask.IsCompleted)throw new InvalidOperationException("Whitespace-only rename was accepted");
+                string title="主题测试 "+theme;input.Text=title;Invoke(save);await renameTask.WaitAsync(TimeSpan.FromSeconds(5));
+                using(var renamedStore=new ScreenShot.Core.ConversationStore(storage))
+                    if(panel.CurrentConversationTitle!=title||renamedStore.Load().Single(item=>item.Id==selected).Title!=title)throw new InvalidOperationException("Rename Save did not persist the selected title");
+                var cancelRename=panel.RenameCurrentConversationAsyncForDiagnostic();rename=await WaitForDialog("重命名对话");((TextBox)rename.Content).Text="discarded fixture title";
+                Invoke(FloatingPanelWindow.FindDialogButton(rename,"CloseButton")??throw new InvalidOperationException("Rename Cancel button absent"));await cancelRename.WaitAsync(TimeSpan.FromSeconds(5));
+                if(panel.CurrentConversationTitle!=title)throw new InvalidOperationException("Rename Cancel changed the title");
+            }
+        }
+        finally{active?.Hide();app.Themes.Apply(appearance);if(Native.GetForegroundWindow()==panel.Handle&&foreground!=0&&Native.IsWindow(foreground))Native.SetForegroundWindow(foreground);}
+        return "PASS: native history-to-confirmation flow stays in one modal, cancels safely, deletes cold-restored closed history and its screenshot, refreshes the list and preserves other tabs across storage restart\nPASS: Light/Dark rename Save and focused input follow the custom accent; Save persists, Cancel preserves the title and whitespace is rejected\n";
+    }
     private static IEnumerable<T> Descendants<T>(DependencyObject root) where T:DependencyObject
     {
         var pending=new Stack<DependencyObject>();pending.Push(root);

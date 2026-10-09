@@ -169,9 +169,21 @@ internal sealed class FloatingBallWindow : Window
 
     private void ApplyBounds(int x,int y,int size)
     {
+        Native.GetWindowRect(Handle,out var previous);
         Native.SetWindowPos(Handle,new nint(-1),x,y,size,size,0x10);
         nint region=CreateEllipticRgn(0,0,size+1,size+1);
         if(region!=0&&SetWindowRgn(Handle,region,true)==0)Native.DeleteObject(region);
+        if(Native.GetWindowRect(Handle,out var next)&&(previous.Left!=next.Left||previous.Top!=next.Top))
+            ((App)Application.Current).Panel?.FollowBall(previous,next);
+    }
+    internal void MoveForDiagnostic(int x,int y)=>ApplyBounds(x,y,PhysicalSize());
+    internal void AlignWithToolbar(int centerY)
+    {
+        if(closed)return;
+        var bounds=GetBounds();int size=PhysicalSize();
+        var info=MonitorAt(new Native.Point{X=(bounds.Left+bounds.Right)/2,Y=centerY});
+        int y=Math.Clamp(centerY-size/2,info.Work.Top,Math.Max(info.Work.Top,info.Work.Bottom-size));
+        if(y!=bounds.Top)ApplyBounds(bounds.Left,y,size);
     }
 
     private nint WindowMessage(nint window,uint message,nint wparam,nint lparam,nuint id,nuint data)

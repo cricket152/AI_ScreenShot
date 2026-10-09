@@ -2,6 +2,7 @@ using ScreenShot.Core;
 using System.Text.Json;
 
 int checks=0;
+checks+=ConversationTests.Run();
 checks+=PromptTests.Run();
 checks+=MarkdownTests.Run();
 checks+=PanelResizeTests.Run();

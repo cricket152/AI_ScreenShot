@@ -62,8 +62,8 @@ internal sealed partial class AdjustableBackdrop : SystemBackdrop,IDisposable
 
     protected override void OnDefaultSystemBackdropConfigurationChanged(ICompositionSupportsSystemBackdrop connectedTarget,XamlRoot xamlRoot)
     {
+        if(disposed||target==null)return;
         base.OnDefaultSystemBackdropConfigurationChanged(connectedTarget,xamlRoot);
-        if(disposed)return;
         root=xamlRoot;Apply();
     }
 

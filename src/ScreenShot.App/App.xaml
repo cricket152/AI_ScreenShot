@@ -74,6 +74,54 @@
                 <Setter Property="CornerRadius" Value="{StaticResource SS.Corner.Control}" />
                 <Setter Property="Padding" Value="{StaticResource SS.Padding.Control}" />
             </Style>
+            <Style x:Key="SS.DialogCancelButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+                <Setter Property="Background" Value="White" />
+                <Setter Property="Foreground" Value="Black" />
+            </Style>
+            <Style x:Key="SS.TabScrollTrackButtonStyle" TargetType="RepeatButton">
+                <Setter Property="IsTabStop" Value="False" />
+                <Setter Property="Template">
+                    <Setter.Value><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent" /></ControlTemplate></Setter.Value>
+                </Setter>
+            </Style>
+            <!-- Keep native ScrollBar/Thumb behavior; this rail stays visible without hover. -->
+            <Style x:Key="SS.TabScrollBarStyle" TargetType="ScrollBar">
+                <Setter Property="MinHeight" Value="10" />
+                <Setter Property="IsTabStop" Value="True" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ScrollBar">
+                            <Grid x:Name="Root" Background="Transparent" Height="10">
+                                <Border Background="{ThemeResource ControlFillColorSecondaryBrush}" Height="4" CornerRadius="2" IsHitTestVisible="False" />
+                                <Grid x:Name="HorizontalRoot" Background="Transparent">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <RepeatButton x:Name="HorizontalSmallDecrease" Width="0" Style="{StaticResource SS.TabScrollTrackButtonStyle}" />
+                                    <RepeatButton x:Name="HorizontalLargeDecrease" Grid.Column="1" Style="{StaticResource SS.TabScrollTrackButtonStyle}" />
+                                    <Thumb x:Name="HorizontalThumb" Grid.Column="2" Height="6" MinWidth="28" Background="{ThemeResource ControlStrongFillColorDefaultBrush}" IsTabStop="False">
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="Thumb">
+                                                <Border x:Name="ThumbSurface" Background="{TemplateBinding Background}" CornerRadius="3">
+                                                    <VisualStateManager.VisualStateGroups>
+                                                        <VisualStateGroup x:Name="CommonStates">
+                                                            <VisualState x:Name="Normal" />
+                                                            <VisualState x:Name="PointerOver"><VisualState.Setters><Setter Target="ThumbSurface.Background" Value="{ThemeResource AccentFillColorDefaultBrush}" /></VisualState.Setters></VisualState>
+                                                            <VisualState x:Name="Pressed"><VisualState.Setters><Setter Target="ThumbSurface.Background" Value="{ThemeResource AccentFillColorSecondaryBrush}" /></VisualState.Setters></VisualState>
+                                                        </VisualStateGroup>
+                                                    </VisualStateManager.VisualStateGroups>
+                                                </Border>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                    <RepeatButton x:Name="HorizontalLargeIncrease" Grid.Column="3" Style="{StaticResource SS.TabScrollTrackButtonStyle}" />
+                                    <RepeatButton x:Name="HorizontalSmallIncrease" Grid.Column="4" Width="0" Style="{StaticResource SS.TabScrollTrackButtonStyle}" />
+                                </Grid>
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
             <!-- Keep native templates, focus indicators and CommonStates. -->
             <Style x:Key="SS.ToolbarButtonStyle" TargetType="Button" BasedOn="{StaticResource SS.QuietButtonStyle}">
                 <Setter Property="Width" Value="{StaticResource SS.ToolbarButtonWidth}" />

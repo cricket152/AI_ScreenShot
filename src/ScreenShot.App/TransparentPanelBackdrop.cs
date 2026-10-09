@@ -10,6 +10,11 @@ internal sealed partial class TransparentPanelBackdrop(nint handle) : SystemBack
     private Windows.UI.Composition.Compositor? compositor;
     private Windows.UI.Composition.CompositionColorBrush? brush;
     internal byte? Alpha=>brush?.Color.A;
+    protected override void OnDefaultSystemBackdropConfigurationChanged(ICompositionSupportsSystemBackdrop target,XamlRoot root)
+    {
+        // This host always paints transparent. A queued theme callback can outlive
+        // target disconnection when a panel closes, so it needs no base reconfiguration.
+    }
 
     protected override void OnTargetConnected(ICompositionSupportsSystemBackdrop target,XamlRoot root)
     {

@@ -82,7 +82,6 @@ internal sealed class CodexConversation
             n=>n.ControlType==ControlType.Group,n=>n.ControlType==ControlType.Text,n=>n.Name);
         return normalized==string.Empty?CodexScopePolicy.ConfirmPlaceholderDraft(draft,PatternDraft()):normalized;
     }
-    internal static bool CanPrepareNewChat(Window window)=>ReadReadyComposer(window,null)!=null;
     internal static AutomationElement? ReadyComposer(Window window,string workspace)=>ReadReadyComposer(window,workspace);
     private static bool IsDraftAttachment(AutomationElement node)=>node.ControlType==ControlType.Button&&CodexScopePolicy.IsDraftAttachmentName(node.Name);
     internal static AutomationElement? DraftAttachment(Window window,string? workspace=null)

@@ -2,6 +2,7 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
@@ -14,38 +15,88 @@ using Windows.System;
 
 namespace ScreenShot.App;
 
-internal sealed class FloatingPanelWindow : Window
+internal sealed partial class FloatingPanelWindow : Window
 {
+    private sealed class ConversationView(Conversation data)
+    {
+        internal Conversation Data=data;
+        internal Grid Header=null!,Content=null!;
+        internal readonly Dictionary<string,MarkdownMessageView> MessageViews=[];
+        internal readonly Dictionary<string,TextBlock> MessageHeadings=[];
+        internal readonly Button send=new(){MinWidth=76,VerticalAlignment=VerticalAlignment.Bottom};
+        internal readonly ComboBox composerMode=new(){ItemsSource=new[]{"Codex","Agent"},SelectedIndex=0,Width=96,MinHeight=28,Height=28,FontSize=12,Padding=new Thickness(8,0,6,0)};
+        internal readonly Button capture=new(){HorizontalAlignment=HorizontalAlignment.Left};
+        internal readonly DropDownButton workspace=new(){Content="选择工作区",MaxWidth=204,VerticalAlignment=VerticalAlignment.Center};
+        internal readonly TextBox prompt=new(){PlaceholderText="输入提示词；有截图时可留空使用默认提示词",AcceptsReturn=true,TextWrapping=TextWrapping.Wrap,MinHeight=64,MaxHeight=100,MaxLength=16000};
+        internal readonly TextBlock status=new(){Text="就绪 · 输入提示词或截取屏幕"};
+        internal readonly TextBlock dimensions=new(){Text="还没有截图",VerticalAlignment=VerticalAlignment.Center,TextTrimming=TextTrimming.CharacterEllipsis};
+        internal readonly ProgressRing progress=new(){Width=16,Height=16,IsActive=false,Visibility=Visibility.Collapsed};
+        internal readonly Button stopWaiting=new(){Content="停止等待",Visibility=Visibility.Collapsed};
+        internal readonly StackPanel messages=new(){Spacing=UiDesign.Number("SS.Spacing.M")};
+        internal readonly ScrollViewer scroll=new(){VerticalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled};
+        internal readonly Button thumbnail=new(){Padding=new Thickness(0),HorizontalAlignment=HorizontalAlignment.Left,Visibility=Visibility.Collapsed};
+        internal readonly Image draftImage=new(){Width=64,Height=40,Stretch=Stretch.Uniform};
+        internal readonly StackPanel empty=new(){Spacing=UiDesign.Number("SS.Spacing.M"),HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center};
+        internal readonly HashSet<string> submittedTargets=[];
+        internal readonly HashSet<(string Target,string Prompt)> submittedTextPrompts=[];
+        internal CancellationTokenSource? waitingCancellation=null;
+        internal MarkdownMessageView? latestResponse=null;
+        internal TextBlock? latestResponseHeading=null;
+        internal TextBlock? latestResponseModel=null;
+        internal byte[] png=[];
+        internal int imageVersion=0;
+        internal int operationVersion=0;
+        internal bool busy=false;
+        internal int TitleVersion;
+        internal long messageInteractionVersion=0;
+        internal double? requestedMessageOffset=null;
+    }
+    private ConversationView current=new(new Conversation());
+    private readonly Dictionary<string,ConversationView> conversations=[];
+    private readonly StackPanel tabs=new(){Orientation=Orientation.Horizontal,Spacing=2};
+    private readonly Grid chatHost=new();
+    private readonly ScrollViewer tabScroll=new(){HorizontalScrollBarVisibility=ScrollBarVisibility.Hidden,VerticalScrollBarVisibility=ScrollBarVisibility.Disabled,HorizontalScrollMode=ScrollMode.Enabled,VerticalScrollMode=ScrollMode.Disabled,IsHorizontalScrollChainingEnabled=false};
+    private readonly ScrollBar tabOverflow=new(){Orientation=Orientation.Horizontal,IndicatorMode=ScrollingIndicatorMode.MouseIndicator,Height=10,Visibility=Visibility.Collapsed};
+    private bool updatingTabOverflow;
+    private string? visibleTabId;
+    internal ScrollBar TabOverflow=>tabOverflow;
+    internal ScrollViewer TabViewport=>tabScroll;
+    internal Microsoft.UI.Xaml.Controls.Primitives.ToggleButton SelectedTab=>tabs.Children.OfType<Grid>().Select(row=>(Microsoft.UI.Xaml.Controls.Primitives.ToggleButton)row.Children[0]).Single(tab=>tab.IsChecked==true);
+    private ConversationStore? store;
+    private readonly string? conversationDirectory;
+    private string? storageWarning;
+    private bool restoring;
     private readonly App app;
     private readonly Button codex=ActionButton("Codex","\uE756","发送截图到 Codex");
     private readonly Button agent=ActionButton("Agent","\uE8F2","发送截图到 Agent");
     private readonly Button copy=ActionButton("复制","\uE8C8","复制截图");
     private readonly Button save=ActionButton("另存为","\uE74E","将截图另存为 PNG");
     private readonly Button more=ActionButton("更多","\uE712","更多操作");
-    private readonly Button send=new(){MinWidth=76,VerticalAlignment=VerticalAlignment.Bottom};
-    private readonly ComboBox composerMode=new(){ItemsSource=new[]{"Codex","Agent"},SelectedIndex=0,Width=96,MinHeight=28,Height=28,FontSize=12,Padding=new Thickness(8,0,6,0)};
+    private Button send=>current.send;
+    private ComboBox composerMode=>current.composerMode;
     private readonly Button paneMenuButton=new(){Content=UiDesign.Icon("\uE70D")};
     private readonly MenuFlyout paneMenu=new();
     private readonly MenuFlyoutItem toolbarVisibilityItem=new(),messageVisibilityItem=new(),toolbarSizeItem=new();
-    private readonly Button capture=new(){HorizontalAlignment=HorizontalAlignment.Left};
-    private readonly DropDownButton workspace=new(){Content="选择工作区",MaxWidth=204,VerticalAlignment=VerticalAlignment.Center};
-    private readonly TextBox prompt=new(){PlaceholderText="输入提示词；有截图时可留空使用默认提示词",AcceptsReturn=true,TextWrapping=TextWrapping.Wrap,MinHeight=64,MaxHeight=100,MaxLength=16000};
-    private readonly TextBlock status=new(){Text="就绪 · 输入提示词或截取屏幕"};
-    private readonly TextBlock dimensions=new(){Text="还没有截图",VerticalAlignment=VerticalAlignment.Center,TextTrimming=TextTrimming.CharacterEllipsis};
-    private readonly ProgressRing progress=new(){Width=16,Height=16,IsActive=false,Visibility=Visibility.Collapsed};
-    private readonly Button stopWaiting=new(){Content="停止等待",Visibility=Visibility.Collapsed};
-    private readonly StackPanel messages=new(){Spacing=UiDesign.Number("SS.Spacing.M")};
-    private readonly ScrollViewer scroll=new(){VerticalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled};
-    private readonly Button thumbnail=new(){Padding=new Thickness(0),HorizontalAlignment=HorizontalAlignment.Left,Visibility=Visibility.Collapsed};
-    private readonly Image draftImage=new(){Width=64,Height=40,Stretch=Stretch.Uniform};
-    private readonly StackPanel empty=new(){Spacing=UiDesign.Number("SS.Spacing.M"),HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center};
-    private readonly HashSet<string> submittedTargets=[];
-    private readonly HashSet<(string Target,string Prompt)> submittedTextPrompts=[];
+    private Button capture=>current.capture;
+    private DropDownButton workspace=>current.workspace;
+    private TextBox prompt=>current.prompt;
+    private TextBlock status=>current.status;
+    private TextBlock dimensions=>current.dimensions;
+    private ProgressRing progress=>current.progress;
+    private Button stopWaiting=>current.stopWaiting;
+    private StackPanel messages=>current.messages;
+    private ScrollViewer scroll=>current.scroll;
+    private Button thumbnail=>current.thumbnail;
+    private Image draftImage=>current.draftImage;
+    private StackPanel empty=>current.empty;
+    private HashSet<string> submittedTargets=>current.submittedTargets;
+    private HashSet<(string Target,string Prompt)> submittedTextPrompts=>current.submittedTextPrompts;
     private readonly CancellationTokenSource lifetime=new();
     private readonly Func<SendRequest,Action<CodexReplyUpdate>,CancellationToken,Task<SendResult>> sendCodex;
     private readonly Func<SendRequest,Action<AgentReplyUpdate>,CancellationToken,Task<SendResult>> sendAgent;
     private readonly Grid layout;
-    private readonly Grid toolGrid,messageHeader;
+    private readonly Grid toolGrid;
+    private Grid messageHeader=>current.Header;
     private readonly PanelResizeController resizeController;
     private readonly PanelMoveController moveController;
     private readonly AdjustableBackdrop toolbarBackdrop,messageBackdrop;
@@ -61,20 +112,23 @@ internal sealed class FloatingPanelWindow : Window
     private readonly PanelInputTransparency inputTransparency;
     private readonly PanelShadowWindow shadowWindow;
     internal PanelShadowWindow ShadowWindow=>shadowWindow;
-    private CancellationTokenSource? waitingCancellation;
-    private MarkdownMessageView? latestResponse;
-    private TextBlock? latestResponseHeading,latestResponseModel;
-    private byte[] png=[];
-    private int imageVersion,operationVersion;
-    private bool busy,expanded,closed;
+    private bool expanded,closed;
     private bool toolbarVisible=true,messageVisible=true;
     private double logicalWidth=544,toolbarHeight=56,messageHeight=540;
     private ResizeStart? resizeStart;
     private Native.Rect? moveStart;
     private bool manuallyPositioned;
-    private long messageInteractionVersion;
-    private double? requestedMessageOffset;
     private Window? preview;
+    private CancellationTokenSource? waitingCancellation {get=>current.waitingCancellation;set=>current.waitingCancellation=value;}
+    private MarkdownMessageView? latestResponse {get=>current.latestResponse;set=>current.latestResponse=value;}
+    private TextBlock? latestResponseHeading {get=>current.latestResponseHeading;set=>current.latestResponseHeading=value;}
+    private TextBlock? latestResponseModel {get=>current.latestResponseModel;set=>current.latestResponseModel=value;}
+    private byte[] png {get=>current.png;set=>current.png=value;}
+    private int imageVersion {get=>current.imageVersion;set=>current.imageVersion=value;}
+    private int operationVersion {get=>current.operationVersion;set=>current.operationVersion=value;}
+    private bool busy {get=>current.busy;set=>current.busy=value;}
+    private long messageInteractionVersion {get=>current.messageInteractionVersion;set=>current.messageInteractionVersion=value;}
+    private double? requestedMessageOffset {get=>current.requestedMessageOffset;set=>current.requestedMessageOffset=value;}
     public bool IsBusy=>busy;
     public nint Handle {get;}
     internal Border ToolbarSurface {get;}
@@ -119,8 +173,9 @@ internal sealed class FloatingPanelWindow : Window
     internal bool PreviewOnTop=>preview?.AppWindow.Presenter is OverlappedPresenter {IsAlwaysOnTop:true};
 
     public FloatingPanelWindow(App app,Func<SendRequest,Action<CodexReplyUpdate>,CancellationToken,Task<SendResult>>? sendCodex=null,
-        Func<SendRequest,Action<AgentReplyUpdate>,CancellationToken,Task<SendResult>>? sendAgent=null)
+        Func<SendRequest,Action<AgentReplyUpdate>,CancellationToken,Task<SendResult>>? sendAgent=null,string? conversationDirectory=null)
     {
+        this.conversationDirectory=conversationDirectory;
         this.app=app;appearance=app.Settings.PanelAppearance;this.sendCodex=sendCodex??app.Codex.SendWithReplyAsync;this.sendAgent=sendAgent??app.Agent.SendWithReplyAsync;Title="AI ScreenShot · 消息";Handle=WinRT.Interop.WindowNative.GetWindowHandle(this);
         Native.SetWindowLongPtr(Handle,-20,(Native.GetWindowLongPtr(Handle,-20)|0x80)&~0x40000);
         var presenter=OverlappedPresenter.Create();presenter.SetBorderAndTitleBar(false,false);presenter.IsResizable=false;presenter.IsMaximizable=false;presenter.IsMinimizable=false;presenter.IsAlwaysOnTop=true;AppWindow.SetPresenter(presenter);
@@ -128,22 +183,63 @@ internal sealed class FloatingPanelWindow : Window
         Native.SetWindowLongPtr(Handle,-16,Native.GetWindowLongPtr(Handle,-16)&~0x00c40000);
         Native.SetWindowLongPtr(Handle,-20,(Native.GetWindowLongPtr(Handle,-20)|0x00200000)&~0x00020300);
         if(!Native.SetWindowPos(Handle,0,0,0,0,0,0x01|0x02|0x04|0x10|0x20))throw new InvalidOperationException("无法移除悬浮宿主的非客户区外框");
-        UiDesign.Apply(send,"SS.PrimaryButtonStyle");send.Content=ActionContent("发送","\uE724");
         UiDesign.Apply(paneMenuButton,"SS.IconButtonStyle");
+        var tools=new StackPanel{Orientation=Orientation.Horizontal,Spacing=UiDesign.Number("SS.Spacing.XS"),HorizontalAlignment=HorizontalAlignment.Left,VerticalAlignment=VerticalAlignment.Center};
+        foreach(var button in new[]{codex,agent,copy,save,more})tools.Children.Add(button);
+        toolGrid=new Grid{ColumnSpacing=UiDesign.Number("SS.Spacing.S")};toolGrid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});toolGrid.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});toolGrid.Children.Add(tools);
+        ConfigurePaneMenu();Grid.SetColumn(paneMenuButton,1);toolGrid.Children.Add(paneMenuButton);
+        ToolbarSurface=Surface("SS.ToolbarSurfaceStyle");ToolbarSurface.Height=toolbarHeight;ToolbarSurface.Padding=new Thickness(UiDesign.Number("SS.Spacing.M"),UiDesign.Number("SS.Spacing.S"),UiDesign.Number("SS.Spacing.M"),UiDesign.Number("SS.Spacing.S"));ToolbarSurface.Child=toolGrid;
+        current.Data.Workspace=DefaultWorkspace();
+        current.Content=BuildConversationView();conversations.Add(current.Data.Id,current);
+        var content=new Grid{RowSpacing=8};content.RowDefinitions.Add(new(){Height=GridLength.Auto});content.RowDefinitions.Add(new(){Height=new GridLength(1,GridUnitType.Star)});
+        var tabRow=new Grid{ColumnSpacing=4};tabRow.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});tabRow.ColumnDefinitions.Add(new(){Width=GridLength.Auto});tabRow.ColumnDefinitions.Add(new(){Width=GridLength.Auto});
+        tabScroll.Content=tabs;Label(tabScroll,"对话标签：横向滚动查看");
+        var tabViewport=new Grid{RowSpacing=3};tabViewport.RowDefinitions.Add(new(){Height=GridLength.Auto});tabViewport.RowDefinitions.Add(new(){Height=GridLength.Auto});
+        tabViewport.Children.Add(tabScroll);Grid.SetRow(tabOverflow,1);tabViewport.Children.Add(tabOverflow);tabRow.Children.Add(tabViewport);
+        UiDesign.Apply(tabOverflow,"SS.TabScrollBarStyle");Label(tabOverflow,"横向滚动对话标签");
+        tabScroll.ViewChanged+=(_,_)=>UpdateTabOverflow();tabScroll.SizeChanged+=(_,_)=>UpdateTabOverflow();tabs.SizeChanged+=(_,_)=>UpdateTabOverflow();
+        tabOverflow.ValueChanged+=(_,e)=>{if(!updatingTabOverflow)tabScroll.ChangeView(e.NewValue,null,null,true);};
+        var newChat=new Button{Content=UiDesign.Icon("\uE710",14),MinWidth=28,MinHeight=28,Padding=new Thickness(4),VerticalAlignment=VerticalAlignment.Top};UiDesign.Apply(newChat,"SS.QuietButtonStyle");Label(newChat,"新建对话（Ctrl+T）");newChat.Click+=(_,_)=>NewConversation();Grid.SetColumn(newChat,1);tabRow.Children.Add(newChat);
+        var history=new Button{Content=UiDesign.Icon("\uE81C",14),MinWidth=28,MinHeight=28,Padding=new Thickness(4),VerticalAlignment=VerticalAlignment.Top};UiDesign.Apply(history,"SS.QuietButtonStyle");Label(history,"历史对话：重新打开或彻底删除");history.Click+=async(_,_)=>await ShowHistoryAsync();Grid.SetColumn(history,2);tabRow.Children.Add(history);
+        content.Children.Add(tabRow);Grid.SetRow(chatHost,1);content.Children.Add(chatHost);chatHost.Children.Add(current.Content);
+        MessageSurface=Surface("SS.MessageSurfaceStyle");MessageSurface.Child=new Grid{Children={content}};
+        var root=new Grid{Padding=UiDesign.Thickness("SS.Spacing.M"),RowSpacing=UiDesign.Number("SS.Spacing.M")};layout=root;root.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});root.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
+        root.Children.Add(ToolbarSurface);Grid.SetRow(MessageSurface,1);root.Children.Add(MessageSurface);
+        outer=root;Content=root;transparentHost=new(Handle);SystemBackdrop=transparentHost;
+        geometry=new(Handle,root,ToolbarSurface,MessageSurface);inputTransparency=new(Handle,geometry);shadowWindow=new(Handle);outer.LayoutUpdated+=WindowLayoutUpdated;
+        resizeController=new PanelResizeController(Handle,ResizePanel);resizeController.Attach(ToolbarSurface,PanelResizePane.Toolbar);resizeController.Attach(MessageSurface,PanelResizePane.Message);
+        toolbarBackdrop=AttachMaterial(ToolbarSurface,appearance.Toolbar);
+        messageBackdrop=AttachMaterial(MessageSurface,appearance.Messages);
+        toolbarStroke=AttachStroke(ToolbarSurface);messageStroke=AttachStroke(MessageSurface);
+        ApplyAppearance(appearance);
+        visualSettings.AnimationsEnabledChanged+=SystemAnimationsChanged;
+        moveController=new PanelMoveController(Handle,MovePanel,()=>!closed&&expanded&&!resizeController.IsDragging&&!paneMenu.IsOpen);
+        moveController.Attach(ToolbarSurface);moveController.Attach(MessageSurface);
+        ToolTipService.SetToolTip(ToolbarSurface,"按住空白区域左键拖动，可移动工具栏和消息栏");
+        ToolTipService.SetToolTip(MessageDragTitle,"按住标题或空白区域左键拖动，可移动工具栏和消息栏");
+        outer.AddHandler(UIElement.KeyDownEvent,new KeyEventHandler((_,e)=>{if(e.Key==VirtualKey.T&&Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down)){NewConversation();e.Handled=true;}else if(e.Key==VirtualKey.Escape){app.CollapseFloatingPanel();e.Handled=true;}}),true);
+        codex.Click+=async(_,_)=>await SendCodexAsync();agent.Click+=async(_,_)=>await SendAsync("Agent");
+        copy.Click+=async(_,_)=>{try{await ClipboardService.ImageAsync(png,token:lifetime.Token);if(!closed)SetStatus("图片已复制");}catch(Exception e){if(!closed)SetStatus("复制失败："+ErrorText(e));}};
+        save.Click+=async(_,_)=>await SaveAsync();
+        ConfigureMore();RestoreConversations();RenderTabs();UpdateButtons();
+        app.Themes.Track(this);
+        app.Themes.Changed+=UpdateStrokeBrush;outer.ActualThemeChanged+=StrokeThemeChanged;UpdateStrokeBrush();
+        Closed+=(_,_)=>{closed=true;inputTransparency.Dispose();shadowWindow.Dispose();app.Themes.Changed-=UpdateStrokeBrush;outer.ActualThemeChanged-=StrokeThemeChanged;outer.LayoutUpdated-=WindowLayoutUpdated;transition.Dispose();visualSettings.AnimationsEnabledChanged-=SystemAnimationsChanged;toolbarBackdrop.Dispose();messageBackdrop.Dispose();moveController.Dispose();resizeController.Dispose();foreach(var view in conversations.Values){view.operationVersion++;view.imageVersion++;}lifetime.Cancel();store?.Dispose();ClosePreview();lifetime.Dispose();app.Panel=null;app.EndCaptureSession(false);};
+    }
+
+    private Grid BuildConversationView()
+    {
+        var view=current;
+        UiDesign.Apply(send,"SS.PrimaryButtonStyle");send.Content=ActionContent("发送","\uE724");
         UiDesign.Apply(capture,"SS.QuietButtonStyle");capture.Content=ActionContent("截取屏幕","\uE722");
         UiDesign.Apply(stopWaiting,"SS.QuietButtonStyle");stopWaiting.FontSize=UiDesign.Number("SS.Typography.Caption");
         UiDesign.Apply(prompt,"SS.PromptTextBoxStyle");
         UiDesign.Apply(status,"SS.CaptionTextStyle");UiDesign.Apply(dimensions,"SS.CaptionTextStyle");dimensions.TextWrapping=TextWrapping.NoWrap;
         workspace.FontSize=UiDesign.Number("SS.Typography.Caption");workspace.MinHeight=UiDesign.Number("SS.ControlHeight");workspace.CornerRadius=UiDesign.Corner("SS.Corner.Control");
 
-        var tools=new StackPanel{Orientation=Orientation.Horizontal,Spacing=UiDesign.Number("SS.Spacing.XS"),HorizontalAlignment=HorizontalAlignment.Left,VerticalAlignment=VerticalAlignment.Center};
-        foreach(var button in new[]{codex,agent,copy,save,more})tools.Children.Add(button);
-        toolGrid=new Grid{ColumnSpacing=UiDesign.Number("SS.Spacing.S")};toolGrid.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});toolGrid.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});toolGrid.Children.Add(tools);
-        ConfigurePaneMenu();Grid.SetColumn(paneMenuButton,1);toolGrid.Children.Add(paneMenuButton);
-        ToolbarSurface=Surface("SS.ToolbarSurfaceStyle");ToolbarSurface.Height=toolbarHeight;ToolbarSurface.Padding=new Thickness(UiDesign.Number("SS.Spacing.M"),UiDesign.Number("SS.Spacing.S"),UiDesign.Number("SS.Spacing.M"),UiDesign.Number("SS.Spacing.S"));ToolbarSurface.Child=toolGrid;
         var messageGrid=new Grid{RowSpacing=UiDesign.Number("SS.Spacing.M"),Padding=UiDesign.Thickness("SS.Padding.Surface")};
         foreach(var height in new[]{GridLength.Auto,GridLength.Auto,new GridLength(1,GridUnitType.Star),GridLength.Auto})messageGrid.RowDefinitions.Add(new RowDefinition{Height=height});
-        var header=new Grid{ColumnSpacing=UiDesign.Number("SS.Spacing.S")};messageHeader=header;header.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});for(int i=0;i<3;i++)header.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});
+        var header=new Grid{ColumnSpacing=UiDesign.Number("SS.Spacing.S")};current.Header=header;header.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});for(int i=0;i<3;i++)header.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});
         header.Children.Add(StyledText("消息","SS.SectionTextStyle",VerticalAlignment.Center));
         Grid.SetColumn(workspace,1);header.Children.Add(workspace);
         Label(stopWaiting,"Codex provider：请求中断本次生成；Agent：停止读取回复。不会重新提交截图");stopWaiting.Click+=(_,_)=>StopWaiting();Grid.SetColumn(stopWaiting,2);header.Children.Add(stopWaiting);
@@ -171,34 +267,12 @@ internal sealed class FloatingPanelWindow : Window
         var sendActions=new StackPanel{Spacing=UiDesign.Number("SS.Spacing.XS"),VerticalAlignment=VerticalAlignment.Bottom};
         send.HorizontalAlignment=HorizontalAlignment.Stretch;sendActions.Children.Add(composerMode);sendActions.Children.Add(send);
         Grid.SetColumn(sendActions,1);composer.Children.Add(sendActions);
-        composerMode.SelectionChanged+=(_,_)=>UpdateButtons();
-        prompt.TextChanged+=(_,_)=>UpdateButtons();
+        composerMode.SelectionChanged+=(_,_)=>{view.Data.Client=view.composerMode.SelectedIndex==1?"Agent":"Codex";if(!restoring){Persist(view);if(ReferenceEquals(view,current))UpdateButtons();}};
+        prompt.TextChanged+=(_,_)=>{if(ReferenceEquals(view,current))UpdateButtons();if(!restoring){view.Data.Draft=view.prompt.Text;Persist(view);}};
         send.Click+=async(_,_)=>{ComposerSendTask=SendAsync(ComposerTarget);await ComposerSendTask;};
         var inputRegion=new StackPanel{Spacing=UiDesign.Number("SS.Spacing.S")};inputRegion.Children.Add(draft);inputRegion.Children.Add(composer);
         var inputSurface=Surface("SS.ComposerSurfaceStyle");inputSurface.Padding=UiDesign.Thickness("SS.Spacing.M");inputSurface.Child=inputRegion;Grid.SetRow(inputSurface,3);messageGrid.Children.Add(inputSurface);
-        MessageSurface=Surface("SS.MessageSurfaceStyle");MessageSurface.Child=messageGrid;
-        var root=new Grid{Padding=UiDesign.Thickness("SS.Spacing.M"),RowSpacing=UiDesign.Number("SS.Spacing.M")};layout=root;root.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});root.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
-        root.Children.Add(ToolbarSurface);Grid.SetRow(MessageSurface,1);root.Children.Add(MessageSurface);
-        outer=root;Content=root;transparentHost=new(Handle);SystemBackdrop=transparentHost;
-        geometry=new(Handle,root,ToolbarSurface,MessageSurface);inputTransparency=new(Handle,geometry);shadowWindow=new(Handle);outer.LayoutUpdated+=WindowLayoutUpdated;
-        resizeController=new PanelResizeController(Handle,ResizePanel);resizeController.Attach(ToolbarSurface,PanelResizePane.Toolbar);resizeController.Attach(MessageSurface,PanelResizePane.Message);
-        toolbarBackdrop=AttachMaterial(ToolbarSurface,appearance.Toolbar);
-        messageBackdrop=AttachMaterial(MessageSurface,appearance.Messages);
-        toolbarStroke=AttachStroke(ToolbarSurface);messageStroke=AttachStroke(MessageSurface);
-        ApplyAppearance(appearance);
-        visualSettings.AnimationsEnabledChanged+=SystemAnimationsChanged;
-        moveController=new PanelMoveController(Handle,MovePanel,()=>!closed&&expanded&&!resizeController.IsDragging&&!paneMenu.IsOpen);
-        moveController.Attach(ToolbarSurface);moveController.Attach(MessageSurface);
-        ToolTipService.SetToolTip(ToolbarSurface,"按住空白区域左键拖动，可移动工具栏和消息栏");
-        ToolTipService.SetToolTip(MessageDragTitle,"按住标题或空白区域左键拖动，可移动工具栏和消息栏");
-        outer.AddHandler(UIElement.KeyDownEvent,new KeyEventHandler((_,e)=>{if(e.Key==VirtualKey.Escape){app.CollapseFloatingPanel();e.Handled=true;}}),true);
-        codex.Click+=async(_,_)=>await SendCodexAsync();agent.Click+=async(_,_)=>await SendAsync("Agent");
-        copy.Click+=async(_,_)=>{try{await ClipboardService.ImageAsync(png,token:lifetime.Token);if(!closed)SetStatus("图片已复制");}catch(Exception e){if(!closed)SetStatus("复制失败："+ErrorText(e));}};
-        save.Click+=async(_,_)=>await SaveAsync();
-        ConfigureWorkspace();ConfigureMore();UpdateButtons();
-        app.Themes.Track(this);
-        app.Themes.Changed+=UpdateStrokeBrush;outer.ActualThemeChanged+=StrokeThemeChanged;UpdateStrokeBrush();
-        Closed+=(_,_)=>{closed=true;inputTransparency.Dispose();shadowWindow.Dispose();app.Themes.Changed-=UpdateStrokeBrush;outer.ActualThemeChanged-=StrokeThemeChanged;outer.LayoutUpdated-=WindowLayoutUpdated;transition.Dispose();visualSettings.AnimationsEnabledChanged-=SystemAnimationsChanged;toolbarBackdrop.Dispose();messageBackdrop.Dispose();moveController.Dispose();resizeController.Dispose();operationVersion++;imageVersion++;lifetime.Cancel();ClosePreview();lifetime.Dispose();app.Panel=null;app.EndCaptureSession(false);};
+        ConfigureWorkspace();return messageGrid;
     }
 
     private static AdjustableBackdrop AttachMaterial(Border surface,SurfaceAppearance appearance)
@@ -299,13 +373,13 @@ internal sealed class FloatingPanelWindow : Window
                 var list=await app.Codex.WorkspacesAsync();menu.Items.Clear();
                 foreach(var item in list)
                 {
-                    bool selected=app.Codex.IsProvider?app.Settings.CodexDirectory==item.DirectoryPath:app.Settings.Workspace==item.Name;
+                    bool selected=app.Codex.IsProvider?current.Data.Workspace?.DirectoryPath==item.DirectoryPath:current.Data.Workspace?.Name==item.Name;
                     var entry=new MenuFlyoutItem{Text=(selected?"✓ ":"")+(app.Codex.IsProvider?item.DirectoryPath:item.Name)};
                     entry.Click+=(_,_)=>
                     {
                         if(app.Codex.IsProvider&&item.DirectoryPath!=null)CodexDirectoryPicker.Select(app.Settings,item.DirectoryPath);
                         else{app.Settings.Workspace=item.Name;app.Settings.Save();}
-                        RefreshWorkspace();SetStatus(app.Codex.IsProvider?"Codex 工作目录已选择":"Codex 工作区已选择");
+                        current.Data.Workspace=item;Persist(current);RefreshWorkspace();SetStatus(app.Codex.IsProvider?"Codex 工作目录已选择":"Codex 工作区已选择");
                     };menu.Items.Add(entry);
                 }
                 if(app.Codex.IsProvider)
@@ -322,9 +396,10 @@ internal sealed class FloatingPanelWindow : Window
     {
         if(closed||busy)return;
         busy=true;UpdateButtons();app.SetFloatingOperationVisible(false);
-        try{if(await CodexDirectoryPicker.PickAsync(this,app.Settings)&&!closed){RefreshWorkspace();SetStatus("Codex 工作目录已选择");}}
+        var view=current;
+        try{if(await CodexDirectoryPicker.PickAsync(this,app.Settings)&&!closed){view.Data.Workspace=DefaultWorkspace();Persist(view);RefreshWorkspace();SetStatus("Codex 工作目录已选择");}}
         catch(Exception error){if(!closed)SetStatus("选择工作目录失败："+ErrorText(error));}
-        finally{busy=false;if(!closed){UpdateButtons();app.SetFloatingOperationVisible(true);}}
+        finally{view.busy=false;if(!closed){UpdateButtons();app.SetFloatingOperationVisible(true);}}
     }
     private void ConfigureMore()
     {
@@ -333,14 +408,14 @@ internal sealed class FloatingPanelWindow : Window
         Add("截取新截图",app.BeginCapture);
         Add("发送到两端",async()=>{await SendAsync("Agent");await SendAsync("Codex");});
         Add("复制提示词",async()=>{try{await ClipboardService.TextAsync(new SendRequest([],prompt.Text,null,app.Settings.DefaultPrompt).EffectivePrompt,token:lifetime.Token);if(!closed)SetStatus("提示词已复制");}catch(Exception e){if(!closed)SetStatus(ErrorText(e));}});
-        Add("清空消息",()=>{if(busy)return;operationVersion++;messages.Children.Clear();empty.Visibility=Visibility.Visible;SetStatus("消息已清空");});
+        Add("清空当前对话",()=>{if(busy)return;operationVersion++;current.TitleVersion++;messages.Children.Clear();current.MessageViews.Clear();current.MessageHeadings.Clear();latestResponse=null;latestResponseHeading=null;latestResponseModel=null;current.Data.Messages.Clear();current.Data.ThreadId=null;current.Data.TurnId=null;Persist(current);empty.Visibility=Visibility.Visible;SetStatus("当前对话已清空");});
         Add("退出截图",()=>{app.EndCaptureSession(false);SetStatus("已退出截图，当前图片仍可使用");});
         Add("设置",app.ShowSettings);Add("隐藏悬浮球",app.HideFloatingBall);
     }
     private void RefreshWorkspace()
     {
-        workspace.Content=app.Codex.IsProvider?(app.Settings.CodexDirectory is {} path?CodexDirectoryPicker.DisplayName(path):"选择工作目录"):app.Settings.Workspace??"选择工作区";
-        ToolTipService.SetToolTip(workspace,app.Codex.IsProvider?app.Settings.CodexDirectory??"选择 Codex 工作目录":"选择 Codex 工作区");
+        workspace.Content=app.Codex.IsProvider?(current.Data.Workspace?.DirectoryPath is {} path?CodexDirectoryPicker.DisplayName(path):"选择工作目录"):current.Data.Workspace?.Name??"选择工作区";
+        ToolTipService.SetToolTip(workspace,current.Data.Workspace?.DirectoryPath??"选择工作区");
     }
     public void Open()
     {
@@ -464,6 +539,7 @@ internal sealed class FloatingPanelWindow : Window
         int x=Math.Clamp(bounds.Left,work.Left,Math.Max(work.Left,work.Right-width));
         int y=Math.Clamp(bounds.Top,work.Top,Math.Max(work.Top,work.Bottom-height));
         AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(x,y,width,height));
+        AlignBallWithToolbar();
     }
     private double HostInsets=>UiDesign.Number("SS.Spacing.M")*2;
     private double LogicalHeight=>HostInsets+(messageVisible?messageHeight:0)+(toolbarVisible?toolbarHeight:0)+(toolbarVisible&&messageVisible?12:0);
@@ -526,7 +602,7 @@ internal sealed class FloatingPanelWindow : Window
             }
         }
         if(gesture.Phase==PanelMovePhase.End)moveStart=null;
-        UpdatePaneVisuals();
+        AlignBallWithToolbar();UpdatePaneVisuals();
     }
     private void ResizePanel(PanelResizeGesture gesture)
     {
@@ -557,6 +633,7 @@ internal sealed class FloatingPanelWindow : Window
         x=Math.Clamp(x,start.Work.Left,Math.Max(start.Work.Left,start.Work.Right-width));
         y=Math.Clamp(y,start.Work.Top,Math.Max(start.Work.Top,start.Work.Bottom-height));
         AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(x,y,width,height));
+        AlignBallWithToolbar();
         if(gesture.Phase==PanelResizePhase.End)resizeStart=null;
     }
     internal void ResizeForDiagnostic(PanelResizePane pane,PanelResizeEdges edges,double deltaX,double deltaY)
@@ -595,21 +672,25 @@ internal sealed class FloatingPanelWindow : Window
         FitToWorkArea(info.Work,scale);UpdateLayoutDimensions();
         int width=(int)Math.Round(EffectiveLogicalWidth*scale),height=(int)Math.Round(LogicalHeight*scale);
         bool right=anchor.X>(info.Work.Left+info.Work.Right)/2;
-        int x=right?info.Work.Right-width-(int)Math.Round(60*scale):info.Work.Left+(int)Math.Round(60*scale);
+        int gap=(int)Math.Round(BallHostGap*scale);
+        int ballSize=app.Ball==null?0:(int)Math.Round(FloatingBallWindow.LogicalSize*Math.Max(96u,Native.GetDpiForWindow(app.Ball.Handle))/96d);
+        int x=right?anchor.X-ballSize/2-gap-width:anchor.X+ballSize/2+gap;
         x=Math.Clamp(x,info.Work.Left,info.Work.Right-width);
-        int y=Math.Clamp(anchor.Y-(int)Math.Round(28*scale),info.Work.Top,info.Work.Bottom-height);
+        int y=Math.Clamp(anchor.Y-(int)Math.Round(BallCenterOffset*scale),info.Work.Top,info.Work.Bottom-height);
         AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(x,y,width,height));
+        AlignBallWithToolbar();
     }
     public async Task PresentAsync(byte[] image,PixelRect region,Func<bool>? stillCurrent=null)
     {
         if(closed)return;
-        int version=++imageVersion;
-        var bitmap=await LoadBitmapAsync(image,160);if(closed||version!=imageVersion||stillCurrent?.Invoke()==false)return;
-        operationVersion++;png=image;submittedTargets.Clear();prompt.Text="";messageVisible=true;
-        dimensions.Text=$"当前截图 · {region.Width} × {region.Height}";thumbnail.Visibility=Visibility.Visible;
-        bool hasWorkspace=app.Codex.IsProvider?app.Settings.CodexDirectory!=null:app.Settings.Workspace!=null;
-        draftImage.Source=bitmap;SetStatus(hasWorkspace?"截图已就绪":app.Codex.IsProvider?"截图已就绪 · 请选择 Codex 工作目录":"截图已就绪 · 请选择 Codex 工作区");UpdateButtons();Open();
-        prompt.Focus(FocusState.Programmatic);
+        var view=current;
+        int version=++view.imageVersion;
+        var bitmap=await LoadBitmapAsync(image,160);if(closed||version!=view.imageVersion||stillCurrent?.Invoke()==false)return;
+        view.png=image;view.submittedTargets.Clear();view.prompt.Text="";messageVisible=true;
+        view.dimensions.Text=$"当前截图 · {region.Width} × {region.Height}";view.thumbnail.Visibility=Visibility.Visible;
+        bool hasWorkspace=app.Codex.IsProvider?view.Data.Workspace?.DirectoryPath!=null:view.Data.Workspace!=null;
+        view.draftImage.Source=bitmap;SetStatus(hasWorkspace?"截图已就绪":app.Codex.IsProvider?"截图已就绪 · 请选择 Codex 工作目录":"截图已就绪 · 请选择 Codex 工作区",destination:view);PersistImage(view,image);if(ReferenceEquals(view,current)){UpdateButtons();Open();}
+        if(ReferenceEquals(view,current))view.prompt.Focus(FocusState.Programmatic);
     }
     private static async Task<BitmapImage> LoadBitmapAsync(byte[] image,int width=0)
     {
@@ -637,9 +718,10 @@ internal sealed class FloatingPanelWindow : Window
         }
         window.Activate();
     }
-    private async Task AddUserMessageAsync(SendRequest request,string target)
+    private async Task AddUserMessageAsync(SendRequest request,string target,ConversationView? destination=null)
     {
-        empty.Visibility=Visibility.Collapsed;
+        var view=destination??current;
+        view.empty.Visibility=Visibility.Collapsed;
         var body=new StackPanel{Spacing=UiDesign.Number("SS.Spacing.S")};body.Children.Add(StyledText("你 · "+target,"SS.CaptionTextStyle"));
         if(request.Png.Length>0)
         {
@@ -648,19 +730,21 @@ internal sealed class FloatingPanelWindow : Window
             var button=new Button{Content=image,Padding=new Thickness(0),HorizontalAlignment=HorizontalAlignment.Left};UiDesign.Apply(button,"SS.QuietButtonStyle");button.CornerRadius=UiDesign.Corner("SS.Corner.Control");Label(button,"查看这条消息的截图详情");button.Click+=async(_,_)=>await ShowPreviewAsync(request.Png);body.Children.Add(button);
         }
         body.Children.Add(new MarkdownMessageView{Text=request.EffectivePrompt});
-        AddBubble(body,false);
+        AddBubble(body,false,view);
     }
-    private Border AddBubble(UIElement content,bool assistant)
+    private Border AddBubble(UIElement content,bool assistant,ConversationView? destination=null)
     {
+        var view=destination??current;
         var bubble=Surface(assistant?"SS.AssistantMessageStyle":"SS.UserMessageStyle");bubble.MaxWidth=Math.Max(1,logicalWidth-82);
         bubble.HorizontalAlignment=assistant?HorizontalAlignment.Right:HorizontalAlignment.Left;bubble.Child=content;
-        messages.Children.Add(bubble);while(messages.Children.Count>24)messages.Children.RemoveAt(0);
+        view.messages.Children.Add(bubble);
         // Settle inserted bubbles before a fast reply captures its follow-bottom offset.
-        scroll.UpdateLayout();ScrollMessageToBottom();return bubble;
+        if(ReferenceEquals(view,current)){scroll.UpdateLayout();ScrollMessageToBottom();}return bubble;
     }
-    private void SetStatus(string text,bool processing=false)
+    private void SetStatus(string text,bool processing=false,ConversationView? destination=null)
     {
-        status.Text=text;progress.IsActive=processing;progress.Visibility=processing?Visibility.Visible:Visibility.Collapsed;
+        var view=destination??current;
+        view.status.Text=text;view.progress.IsActive=processing;view.progress.Visibility=processing?Visibility.Visible:Visibility.Collapsed;
     }
     private void RecordMessageInteraction(){messageInteractionVersion++;requestedMessageOffset=null;}
     private void ScrollMessageToBottom()
@@ -668,11 +752,12 @@ internal sealed class FloatingPanelWindow : Window
         requestedMessageOffset=scroll.ScrollableHeight;
         scroll.ChangeView(null,requestedMessageOffset,null,true);
     }
-    private void FollowMessageBottom(double previousOffset,long interactionVersion,double? pendingOffset)
+    private void FollowMessageBottom(double previousOffset,long interactionVersion,double? pendingOffset,ConversationView? destination=null)
     {
+        var view=destination??current;
         DispatcherQueue.TryEnqueue(()=>
         {
-            if(closed||!expanded||!messageVisible||messageInteractionVersion!=interactionVersion)return;
+            if(closed||!ReferenceEquals(view,current)||!expanded||!messageVisible||messageInteractionVersion!=interactionVersion)return;
             // ChangeView can land after a reply snapshot. That requested move is not user scrolling.
             if(Math.Abs(scroll.VerticalOffset-previousOffset)>1&&(!pendingOffset.HasValue||Math.Abs(scroll.VerticalOffset-pendingOffset.Value)>1))return;
             // Layout may expand after the streamed text changes; do not override a user's intervening scroll.
@@ -681,10 +766,11 @@ internal sealed class FloatingPanelWindow : Window
     }
     private bool CanSendTo(string target)=>!busy&&(png.Length>0?!submittedTargets.Contains(target):
         !string.IsNullOrWhiteSpace(prompt.Text)&&!submittedTextPrompts.Contains((target,prompt.Text.Trim())));
-    private void MarkSubmitted(string target,SendRequest request)
+    private void MarkSubmitted(string target,SendRequest request,ConversationView? destination=null)
     {
-        if(request.Png.Length>0)submittedTargets.Add(target);
-        else submittedTextPrompts.Add((target,request.Prompt.Trim()));
+        var view=destination??current;
+        if(request.Png.Length>0)view.submittedTargets.Add(target);
+        else view.submittedTextPrompts.Add((target,request.Prompt.Trim()));
     }
     private void UpdateButtons()
     {
@@ -710,118 +796,130 @@ internal sealed class FloatingPanelWindow : Window
     private async Task SendAsync(string target)
     {
         if(closed||!CanSendTo(target))return;
-        if(target=="Codex"&&(app.Codex.IsProvider?app.Settings.CodexDirectory==null:app.Settings.Workspace==null)){SetStatus(app.Codex.IsProvider?"先在消息标题栏选择 Codex 工作目录":"先在消息标题栏选择 Codex 工作区");workspace.Focus(FocusState.Programmatic);return;}
+        var view=current;
+        void SendStatus(string text,bool processing=false)=>SetStatus(text,processing,view);
+        if(target=="Codex"&&(app.Codex.IsProvider?view.Data.Workspace?.DirectoryPath==null:view.Data.Workspace==null)){SendStatus(app.Codex.IsProvider?"先在消息标题栏选择 Codex 工作目录":"先在消息标题栏选择 Codex 工作区");view.workspace.Focus(FocusState.Programmatic);return;}
         bool isCodex=target=="Codex";
-        busy=true;UpdateButtons();SetStatus("正在发送到 "+target,true);
-        stopWaiting.IsEnabled=true;stopWaiting.Visibility=Visibility.Visible;
+        view.busy=true;if(ReferenceEquals(view,current))UpdateButtons();RenderTabs();SendStatus("正在发送到 "+target,true);
+        view.stopWaiting.IsEnabled=true;view.stopWaiting.Visibility=Visibility.Visible;
         UpdateLayoutDimensions();
-        var request=new SendRequest(png,prompt.Text,app.Settings.Workspace is {} name?new Workspace(name,app.Settings.CodexDirectory):null,app.Settings.DefaultPrompt);
+        var request=new SendRequest(view.png,view.prompt.Text,view.Data.Workspace,app.Settings.DefaultPrompt){Conversation=new ConversationContext{ThreadId=view.Data.ThreadId,History=AgentHistory(view),SessionChanged=(thread,turn)=>SaveSession(view,thread,turn)}};
+        var userRecord=new ConversationMessage{Role="user",Client=target,Text=request.EffectivePrompt,Image=view.Data.DraftImage};
+        var replyRecord=new ConversationMessage{Role="assistant",Client=target};
+        view.Data.Messages.Add(userRecord);view.Data.Messages.Add(replyRecord);Persist(view);
         var response=new MarkdownMessageView{Text="正在发送…"};
         var responseHeading=StyledText(target+" · 发送状态","SS.CaptionTextStyle");responseHeading.TextTrimming=TextTrimming.CharacterEllipsis;
+        view.MessageViews[replyRecord.Id]=response;view.MessageHeadings[replyRecord.Id]=responseHeading;
         var responseModel=StyledText(isCodex?"":(app.Settings.Agent.ModelName??"").Trim(),"SS.CaptionTextStyle");
         responseModel.Visibility=isCodex?Visibility.Collapsed:Visibility.Visible;responseModel.MaxWidth=180;responseModel.TextAlignment=TextAlignment.Right;responseModel.TextTrimming=TextTrimming.CharacterEllipsis;
         ToolTipService.SetToolTip(responseModel,responseModel.Text);AutomationProperties.SetName(responseModel,"回复模型："+responseModel.Text);
-        latestResponse=response;latestResponseHeading=responseHeading;latestResponseModel=responseModel;
-        bool submitted=false,replyFinished=false,receivingUpdates=true,receivedReplyText=false;int operation=++operationVersion;
-        using var cancellation=CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);waitingCancellation=cancellation;
+        view.latestResponse=response;view.latestResponseHeading=responseHeading;view.latestResponseModel=responseModel;
+        bool submitted=false,replyFinished=false,receivingUpdates=true,receivedReplyText=false;int operation=++view.operationVersion;
+        using var cancellation=CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);view.waitingCancellation=cancellation;
         try
         {
             ClosePreview();app.EndCaptureSession(false);
-            await AddUserMessageAsync(request,target);
+            await AddUserMessageAsync(request,target,view);
             if(closed)return;
             var replyHeader=new Grid{ColumnSpacing=UiDesign.Number("SS.Spacing.S")};replyHeader.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});replyHeader.ColumnDefinitions.Add(new(){Width=GridLength.Auto});
             replyHeader.Children.Add(responseHeading);Grid.SetColumn(responseModel,1);replyHeader.Children.Add(responseModel);
-            var body=new StackPanel{Spacing=UiDesign.Number("SS.Spacing.S")};body.Children.Add(replyHeader);body.Children.Add(response);AddBubble(body,true);
+            var body=new StackPanel{Spacing=UiDesign.Number("SS.Spacing.S")};body.Children.Add(replyHeader);body.Children.Add(response);AddBubble(body,true,view);
             SendResult result;
             void ReceiveUpdate(CodexReplyUpdate update,string? modelName=null)
             {
                 void ApplyUpdate()
                 {
-                    if(closed||!receivingUpdates||replyFinished||operation!=operationVersion)return;
+                    if(closed||!receivingUpdates||replyFinished||operation!=view.operationVersion)return;
                     if(!isCodex&&!string.IsNullOrWhiteSpace(modelName))
                     {responseModel.Text=modelName;ToolTipService.SetToolTip(responseModel,modelName);AutomationProperties.SetName(responseModel,"回复模型："+modelName);}
-                    double previousOffset=scroll.VerticalOffset;
-                    long interactionVersion=messageInteractionVersion;double? pendingOffset=requestedMessageOffset;
-                    bool followBottom=messageVisible&&(scroll.ScrollableHeight-previousOffset<=16||pendingOffset.HasValue&&Math.Abs(scroll.ScrollableHeight-pendingOffset.Value)<=1),deferredRender=false;
+                    double previousOffset=view.scroll.VerticalOffset;
+                    long interactionVersion=view.messageInteractionVersion;double? pendingOffset=view.requestedMessageOffset;
+                    bool followBottom=ReferenceEquals(view,current)&&messageVisible&&(view.scroll.ScrollableHeight-previousOffset<=16||pendingOffset.HasValue&&Math.Abs(view.scroll.ScrollableHeight-pendingOffset.Value)<=1),deferredRender=false;
                     if(update.Phase==CodexReplyPhase.Submitted)
                     {
-                        submitted=true;MarkSubmitted(target,request);stopWaiting.Visibility=Visibility.Visible;
-                        responseHeading.Text=target+" · 正在处理";response.Text="正在思考 / 正在处理…";SetStatus("消息已提交 · "+target+" 正在思考 / 正在处理",true);
+                        submitted=true;MarkSubmitted(target,request,view);view.stopWaiting.Visibility=Visibility.Visible;
+                        responseHeading.Text=target+" · 正在处理";response.Text="正在思考 / 正在处理…";SendStatus("消息已提交 · "+target+" 正在思考 / 正在处理",true);
                     }
                     else if(update.Phase==CodexReplyPhase.Thinking)
                     {
                         string workStatus=string.IsNullOrWhiteSpace(update.Status)?"正在思考 / 正在处理":update.Status.Trim();
-                        responseHeading.Text=target+" · "+workStatus;SetStatus(target+" · "+workStatus,true);
+                        responseHeading.Text=target+" · "+workStatus;SendStatus(target+" · "+workStatus,true);
                         if(!string.IsNullOrWhiteSpace(update.Text))
                         {
                             receivedReplyText=true;deferredRender=true;
-                            response.SetStreamingText(update.Text,followBottom?()=>FollowMessageBottom(previousOffset,interactionVersion,pendingOffset):null);
+                            response.SetStreamingText(update.Text,followBottom?()=>FollowMessageBottom(previousOffset,interactionVersion,pendingOffset,view):null);
                         }
                         else if(update.Text!=null&&!receivedReplyText)response.Text=workStatus+"…";
                     }
                     else if(update.Phase==CodexReplyPhase.Completed)
                     {
-                        replyFinished=true;stopWaiting.Visibility=Visibility.Collapsed;responseHeading.Text=target;
-                        response.Text=string.IsNullOrEmpty(update.Text)?update.Status??target+" 已完成，未返回回复正文。":update.Text;SetStatus(target+" 输出完成");
+                        replyFinished=true;view.stopWaiting.Visibility=Visibility.Collapsed;responseHeading.Text=target;
+                        response.Text=string.IsNullOrEmpty(update.Text)?update.Status??target+" 已完成，未返回回复正文。":update.Text;SendStatus(target+" 输出完成");
                     }
                     else if(update.Phase==CodexReplyPhase.Unavailable)
                     {
-                        replyFinished=true;stopWaiting.Visibility=Visibility.Collapsed;responseHeading.Text=target+" · 回复状态";
+                        replyFinished=true;view.stopWaiting.Visibility=Visibility.Collapsed;responseHeading.Text=target+" · 回复状态";
                         string replyStatus=update.Status??update.Text??"消息已提交 · 回复连接已断开";
                         if(update.Status!=null&&!string.IsNullOrWhiteSpace(update.Text)){receivedReplyText=true;response.Text=update.Text;}
-                        if(!receivedReplyText)response.Text=replyStatus;SetStatus(replyStatus);
+                        if(!receivedReplyText)response.Text=replyStatus;SendStatus(replyStatus);
                     }
-                    if(followBottom&&!deferredRender)FollowMessageBottom(previousOffset,interactionVersion,pendingOffset);
+                    replyRecord.Text=receivedReplyText||update.Phase==CodexReplyPhase.Completed?update.Text??response.Text:response.Text;replyRecord.Model=responseModel.Text;replyRecord.State=update.Phase==CodexReplyPhase.Completed?"Sent":update.Phase==CodexReplyPhase.Unavailable?"Unknown":update.Phase.ToString();userRecord.State=replyRecord.State;Persist(view);
+                    if(followBottom&&!deferredRender)FollowMessageBottom(previousOffset,interactionVersion,pendingOffset,view);
                 }
                 if(DispatcherQueue.HasThreadAccess)ApplyUpdate();else DispatcherQueue.TryEnqueue(ApplyUpdate);
             }
             if(isCodex)result=await sendCodex(request,update=>ReceiveUpdate(update),cancellation.Token);
             else result=await sendAgent(request,update=>ReceiveUpdate(new(update.Phase switch{AgentReplyPhase.Submitted=>CodexReplyPhase.Submitted,AgentReplyPhase.Thinking=>CodexReplyPhase.Thinking,AgentReplyPhase.Completed=>CodexReplyPhase.Completed,_=>CodexReplyPhase.Unavailable},update.Text,update.Status),update.ModelName),cancellation.Token);
             await FlushReplyUpdatesAsync();
-            if(closed||operation!=operationVersion)return;
-            if(result.State!=SendState.Failed)MarkSubmitted(target,request);
+            if(closed||operation!=view.operationVersion)return;
+            userRecord.State=result.State.ToString();
+            if(!replyFinished)replyRecord.State=result.State==SendState.Sent?"Unknown":result.State.ToString();Persist(view);
+            if(result.State!=SendState.Failed)MarkSubmitted(target,request,view);
             if(result.State!=SendState.Sent)
             {
-                responseHeading.Text=target+" · 发送状态";if(isCodex||!receivedReplyText)response.Text=result.Message;SetStatus(result.Message);
+                responseHeading.Text=target+" · 发送状态";if(isCodex||!receivedReplyText)response.Text=result.Message;SendStatus(result.Message);
             }
             else if(!replyFinished)
             {
                 responseHeading.Text=target+" · 回复状态";
-                if(!receivedReplyText)response.Text=isCodex?"消息已提交，请到 Codex 查看回复。":"请求已发送，Agent 未返回完整回复；不会自动重发";SetStatus(isCodex?"消息已提交 · 请到 Codex 查看回复":"请求已发送，Agent 未返回完整回复；不会自动重发");
+                if(!receivedReplyText)response.Text=isCodex?"消息已提交，请到 Codex 查看回复。":"请求已发送，Agent 未返回完整回复；不会自动重发";SendStatus(isCodex?"消息已提交 · 请到 Codex 查看回复":"请求已发送，Agent 未返回完整回复；不会自动重发");
             }
         }
         catch(Exception e)
         {
             await FlushReplyUpdatesAsync();
-            if(closed||operation!=operationVersion)return;
+            if(closed||operation!=view.operationVersion)return;
             string replyStatus;
             if(submitted)
             {
-                MarkSubmitted(target,request);responseHeading.Text=target+" · 回复状态";
+                MarkSubmitted(target,request,view);responseHeading.Text=target+" · 回复状态";
                 replyStatus=!isCodex?"Agent 回复读取已停止或失败；远端结果未知，不会自动重发":e is OperationCanceledException?"消息已提交 · 已停止等待回复；未确认 Codex 是否停止生成，已保留收到的内容。":"消息已提交 · 回复读取失败，请到 Codex 查看处理结果。";
                 if(!receivedReplyText)response.Text=replyStatus;
             }
             else{responseHeading.Text=target+" · 发送状态";replyStatus=response.Text="发送失败："+ErrorText(e);}
-            SetStatus(replyStatus);
+            replyRecord.State=userRecord.State=submitted?"Unknown":"Failed";SendStatus(replyStatus);
         }
         finally
         {
-            receivingUpdates=false;if(waitingCancellation==cancellation)waitingCancellation=null;busy=false;
-            if(!closed){stopWaiting.Visibility=Visibility.Collapsed;UpdateButtons();}
+            replyRecord.Text=response.Text;replyRecord.Model=responseModel.Text;Persist(view);
+            if(store!=null&&replyRecord.State=="Sent"&&!view.Data.TitleRequested){view.Data.TitleRequested=true;Persist(view);_ = GenerateTitleAsync(view,request,target,replyRecord.Text);}
+            receivingUpdates=false;if(view.waitingCancellation==cancellation)view.waitingCancellation=null;view.busy=false;
+            if(!closed){view.stopWaiting.Visibility=Visibility.Collapsed;if(ReferenceEquals(view,current))UpdateButtons();RenderTabs();}
         }
     }
     internal Task SendAgentAsync()=>SendAsync("Agent");
     private async Task SaveAsync()
     {
         if(closed||busy||png.Length==0)return;
+        var view=current;var image=png;
         busy=true;UpdateButtons();app.SetFloatingOperationVisible(false);
         try
         {
             var picker=new FileSavePicker{SuggestedFileName="Screenshot-"+DateTime.Now.ToString("yyyyMMdd-HHmmss")};picker.FileTypeChoices.Add("PNG 图片",new List<string>{".png"});WinRT.Interop.InitializeWithWindow.Initialize(picker,Handle);
-            var file=await picker.PickSaveFileAsync();if(file!=null){await FileIO.WriteBytesAsync(file,png);SetStatus("图片已保存");}else SetStatus("已取消另存为");
+            var file=await picker.PickSaveFileAsync();if(file!=null){await FileIO.WriteBytesAsync(file,image);SetStatus("图片已保存",destination:view);}else SetStatus("已取消另存为",destination:view);
         }
-        catch(Exception e){SetStatus("保存失败："+ErrorText(e));}
-        finally{busy=false;if(!closed){UpdateButtons();app.SetFloatingOperationVisible(true);}}
+        catch(Exception e){SetStatus("保存失败："+ErrorText(e),destination:view);}
+        finally{view.busy=false;if(!closed){UpdateButtons();app.SetFloatingOperationVisible(true);}}
     }
     internal async Task ShowDesignPreviewAsync(byte[] fixture)
     {

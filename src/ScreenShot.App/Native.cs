@@ -50,7 +50,6 @@ internal static class Native
     [DllImport("gdi32.dll")] public static extern nint SelectObject(nint dc,nint obj);
     [DllImport("gdi32.dll")] public static extern bool BitBlt(nint dest,int x,int y,int width,int height,nint source,int sx,int sy,uint rop);
     [DllImport("gdi32.dll")] public static extern int GetDIBits(nint dc,nint bitmap,uint start,uint lines,byte[] bits,ref BitmapInfo info,uint usage);
-    [DllImport("gdi32.dll")] public static extern int StretchDIBits(nint dc,int x,int y,int width,int height,int sx,int sy,int sw,int sh,byte[] bits,ref BitmapInfo info,uint usage,uint rop);
     [DllImport("gdi32.dll")] public static extern bool DeleteObject(nint obj);
     [DllImport("gdi32.dll")] public static extern bool DeleteDC(nint dc);
     [DllImport("gdi32.dll")] public static extern nint CreatePen(int style,int width,uint color);

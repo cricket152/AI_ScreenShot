@@ -27,11 +27,11 @@ internal sealed class AppThemeController : IDisposable
 
     private static readonly Dictionary<string,string[]> BrushAliases=new()
     {
-        ["AccentFillColorDefaultBrush"]=["AccentButtonBackground","NavigationViewSelectionIndicatorForeground","SliderThumbBackground","SliderTrackValueFill","ToggleSwitchFillOn","ToggleSwitchStrokeOn","CheckBoxCheckBackgroundFillChecked","CheckBoxCheckBackgroundStrokeChecked","CheckBoxCheckBackgroundFillIndeterminate","CheckBoxCheckBackgroundStrokeIndeterminate","ProgressRingForegroundThemeBrush","ProgressBarForeground"],
-        ["AccentFillColorSecondaryBrush"]=["AccentButtonBackgroundPointerOver","SliderThumbBackgroundPointerOver","SliderTrackValueFillPointerOver","ToggleSwitchFillOnPointerOver","ToggleSwitchStrokeOnPointerOver","CheckBoxCheckBackgroundFillCheckedPointerOver","CheckBoxCheckBackgroundStrokeCheckedPointerOver"],
-        ["AccentFillColorTertiaryBrush"]=["AccentButtonBackgroundPressed","SliderThumbBackgroundPressed","SliderTrackValueFillPressed","ToggleSwitchFillOnPressed","ToggleSwitchStrokeOnPressed","CheckBoxCheckBackgroundFillCheckedPressed","CheckBoxCheckBackgroundStrokeCheckedPressed"],
-        ["TextOnAccentFillColorPrimaryBrush"]=["AccentButtonForeground","AccentButtonForegroundPointerOver","ToggleSwitchKnobFillOn","ToggleSwitchKnobFillOnPointerOver","ToggleSwitchKnobFillOnPressed","CheckBoxCheckGlyphForegroundChecked","CheckBoxCheckGlyphForegroundCheckedPointerOver","CheckBoxCheckGlyphForegroundIndeterminate"],
-        ["TextOnAccentFillColorSecondaryBrush"]=["AccentButtonForegroundPressed","CheckBoxCheckGlyphForegroundCheckedPressed"],
+        ["AccentFillColorDefaultBrush"]=["AccentButtonBackground","ToggleButtonBackgroundChecked","NavigationViewSelectionIndicatorForeground","SliderThumbBackground","SliderTrackValueFill","ToggleSwitchFillOn","ToggleSwitchStrokeOn","CheckBoxCheckBackgroundFillChecked","CheckBoxCheckBackgroundStrokeChecked","CheckBoxCheckBackgroundFillIndeterminate","CheckBoxCheckBackgroundStrokeIndeterminate","ProgressRingForegroundThemeBrush","ProgressBarForeground"],
+        ["AccentFillColorSecondaryBrush"]=["AccentButtonBackgroundPointerOver","ToggleButtonBackgroundCheckedPointerOver","SliderThumbBackgroundPointerOver","SliderTrackValueFillPointerOver","ToggleSwitchFillOnPointerOver","ToggleSwitchStrokeOnPointerOver","CheckBoxCheckBackgroundFillCheckedPointerOver","CheckBoxCheckBackgroundStrokeCheckedPointerOver"],
+        ["AccentFillColorTertiaryBrush"]=["AccentButtonBackgroundPressed","ToggleButtonBackgroundCheckedPressed","SliderThumbBackgroundPressed","SliderTrackValueFillPressed","ToggleSwitchFillOnPressed","ToggleSwitchStrokeOnPressed","CheckBoxCheckBackgroundFillCheckedPressed","CheckBoxCheckBackgroundStrokeCheckedPressed"],
+        ["TextOnAccentFillColorPrimaryBrush"]=["AccentButtonForeground","AccentButtonForegroundPointerOver","ToggleButtonForegroundChecked","ToggleButtonForegroundCheckedPointerOver","ToggleSwitchKnobFillOn","ToggleSwitchKnobFillOnPointerOver","ToggleSwitchKnobFillOnPressed","CheckBoxCheckGlyphForegroundChecked","CheckBoxCheckGlyphForegroundCheckedPointerOver","CheckBoxCheckGlyphForegroundIndeterminate"],
+        ["TextOnAccentFillColorSecondaryBrush"]=["AccentButtonForegroundPressed","ToggleButtonForegroundCheckedPressed","CheckBoxCheckGlyphForegroundCheckedPressed"],
         ["AccentTextFillColorPrimaryBrush"]=["HyperlinkForeground","HyperlinkButtonForeground","InfoBarHyperlinkButtonForeground"],
         ["AccentTextFillColorSecondaryBrush"]=["HyperlinkForegroundPointerOver","HyperlinkButtonForegroundPointerOver"],
         ["AccentTextFillColorTertiaryBrush"]=["HyperlinkForegroundPressed","HyperlinkButtonForegroundPressed"],
@@ -49,6 +49,42 @@ internal sealed class AppThemeController : IDisposable
         return (SolidColorBrush)(root.ActualTheme==ElementTheme.Dark?scope.Dark:scope.Light)["SystemControlHighlightAccentBrush"];
     }
     internal bool IsHighContrast(FrameworkElement root)=>windows.Values.FirstOrDefault(scope=>ReferenceEquals(scope.Root,root))?.ThemeSettings.HighContrast==true;
+
+    internal void ThemeDialog(ContentDialog dialog,FrameworkElement owner)
+    {
+        var resources=new ResourceDictionary();var light=new ResourceDictionary();var dark=new ResourceDictionary();
+        resources.ThemeDictionaries["Light"]=light;resources.ThemeDictionaries["Dark"]=dark;resources.ThemeDictionaries["HighContrast"]=new ResourceDictionary();
+        dialog.Resources.MergedDictionaries.Add(resources);
+        void Update()
+        {
+            UpdatePalette(light,ElementTheme.Light);UpdatePalette(dark,ElementTheme.Dark);
+            UpdateInputBorder(light,ElementTheme.Light);UpdateInputBorder(dark,ElementTheme.Dark);
+            dialog.RequestedTheme=owner.ActualTheme;
+        }
+        void OwnerThemeChanged(FrameworkElement sender,object args)=>Update();
+        Update();
+        if(dialog.Content is TextBox input)
+        {
+            input.Resources.ThemeDictionaries["Light"]=new ResourceDictionary{["TextControlBorderBrushFocused"]=light["TextControlBorderBrushFocused"]};
+            input.Resources.ThemeDictionaries["Dark"]=new ResourceDictionary{["TextControlBorderBrushFocused"]=dark["TextControlBorderBrushFocused"]};
+            input.Resources.ThemeDictionaries["HighContrast"]=new ResourceDictionary();
+        }
+        dialog.Opened+=(_,_)=>{Update();Changed+=Update;owner.ActualThemeChanged+=OwnerThemeChanged;};
+        dialog.Closed+=(_,_)=>{Changed-=Update;owner.ActualThemeChanged-=OwnerThemeChanged;};
+    }
+    private void UpdateInputBorder(ResourceDictionary resources,ElementTheme theme)
+    {
+        // The native elevation gradient belongs to the system dictionary; give the popup its own gradient to keep the accent scoped.
+        if(!resources.TryGetValue("TextControlBorderBrushFocused",out var value))
+        {
+            var gradient=new LinearGradientBrush{MappingMode=BrushMappingMode.Absolute,StartPoint=new(0,0),EndPoint=new(0,2),RelativeTransform=new ScaleTransform{ScaleY=-1,CenterY=0.5}};
+            gradient.GradientStops.Add(new(){Offset=1});gradient.GradientStops.Add(new(){Offset=1});
+            resources["TextControlBorderBrushFocused"]=resources["TextControlElevationBorderFocusedBrush"]=gradient;value=gradient;
+        }
+        var border=(LinearGradientBrush)value;
+        border.GradientStops[0].Color=((SolidColorBrush)resources["AccentFillColorDefaultBrush"]).Color;
+        border.GradientStops[1].Color=SystemBrush("ControlStrokeColorDefaultBrush",theme).Color;
+    }
 
     internal void Track(Window window)
     {

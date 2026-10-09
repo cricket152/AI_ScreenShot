@@ -13,6 +13,7 @@ internal sealed class CodexTarget(DispatcherQueue dispatcher,Settings? settings=
     private readonly CodexProviderTarget? provider=settings==null?null:new(settings);
     internal bool IsProvider=>provider!=null;
     internal Task<string> CheckProviderAsync(CancellationToken token)=>provider?.CheckAsync(token)??Task.FromResult("当前是 UI Automation 诊断模式");
+    internal Task<CodexReplyUpdate?> RecoverAsync(Conversation conversation,CancellationToken token)=>provider?.RecoverAsync(conversation,token)??Task.FromResult<CodexReplyUpdate?>(null);
     public void Dispose()=>provider?.Dispose();
     private static readonly Regex NewChat=CodexWindowLocator.NewChat;
     public Task<IReadOnlyList<Workspace>> WorkspacesAsync()=>provider!=null?Task.FromResult(provider.Workspaces()):Task.Run<IReadOnlyList<Workspace>>(async()=>

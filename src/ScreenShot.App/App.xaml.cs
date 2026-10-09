@@ -20,7 +20,24 @@ public partial class App : Application
     internal AppThemeController Themes {get;}
     internal AgentClient Agent {get;}
     internal CodexTarget Codex {get;private set;}=null!;
-    public App(){Native.SetCurrentProcessExplicitAppUserModelID("AIScreenShot.Desktop");InitializeComponent();Themes=new(Settings.PanelAppearance);Agent=new(()=>Settings.Agent);UnhandledException+=(_,e)=>{tray?.Notify("应用错误",e.Message);e.Handled=true;};}
+    public App()
+    {
+        Native.SetCurrentProcessExplicitAppUserModelID("AIScreenShot.Desktop");InitializeComponent();
+        Themes=new(Settings.PanelAppearance);Agent=new(()=>Settings.Agent);
+        UnhandledException+=(_,e)=>
+        {
+            StartupDiagnostics.Record(StartupDiagnostics.Stage,e.Exception);
+            string[] arguments=Environment.GetCommandLineArgs();
+            if(arguments.Contains("--floating-ui-test"))
+            {
+                Directory.CreateDirectory(Path.Combine(AppContext.BaseDirectory,"diagnostics"));
+                File.WriteAllText(Path.Combine(AppContext.BaseDirectory,"diagnostics","floating-unhandled.txt"),e.Exception.ToString());Environment.ExitCode=1;
+            }
+            tray?.Notify("应用错误",e.Message);e.Handled=true;
+            // A startup failure must not leave an invisible process holding the single-instance mutex.
+            if(tray==null&&!arguments.Any(a=>a.EndsWith("-test",StringComparison.Ordinal))){Environment.ExitCode=1;Exit();}
+        };
+    }
     internal void ApplyAppearance(PanelAppearance appearance){Themes.Apply(appearance);Panel?.ApplyAppearance(appearance);}
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
@@ -28,10 +45,14 @@ public partial class App : Application
         bool toolbarTest=Environment.GetCommandLineArgs().Contains("--toolbar-test");
         bool clipboardTest=Environment.GetCommandLineArgs().Contains("--clipboard-test");
         bool floatingTest=Environment.GetCommandLineArgs().Contains("--floating-ui-test");
+        bool startupTest=Environment.GetCommandLineArgs().Contains("--startup-test");
         bool providerTest=Environment.GetCommandLineArgs().Contains("--codex-provider-test");
         bool codexReadyTest=Environment.GetCommandLineArgs().Contains("--codex-ready-test");
         bool codexWindowTest=codexReadyTest||Environment.GetCommandLineArgs().Contains("--codex-window-test");
-        instance=new Mutex(true,overlayTest?"Local\\AIScreenShot.OverlayDiagnostics":toolbarTest?"Local\\AIScreenShot.ToolbarDiagnostics":clipboardTest?"Local\\AIScreenShot.ClipboardDiagnostics":floatingTest?"Local\\AIScreenShot.FloatingDiagnostics":providerTest?"Local\\AIScreenShot.ProviderDiagnostics":codexWindowTest?"Local\\AIScreenShot.CodexWindowDiagnostics":"Local\\AIScreenShot.App",out bool created);if(!created){Exit();return;}
+        instance=new Mutex(true,overlayTest?"Local\\AIScreenShot.OverlayDiagnostics":toolbarTest?"Local\\AIScreenShot.ToolbarDiagnostics":clipboardTest?"Local\\AIScreenShot.ClipboardDiagnostics":floatingTest?"Local\\AIScreenShot.FloatingDiagnostics":startupTest?"Local\\AIScreenShot.StartupDiagnostics":providerTest?"Local\\AIScreenShot.ProviderDiagnostics":codexWindowTest?"Local\\AIScreenShot.CodexWindowDiagnostics":"Local\\AIScreenShot.App",out bool created);if(!created){Exit();return;}
+        StartupDiagnostics.Record("system-dispatcher");
+        // Windows.UI.Composition requires the Windows.System queue before the first backdrop.
+        Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread().EnsureSystemDispatcherQueue();
         if(overlayTest)
         {
             string output=Path.Combine(AppContext.BaseDirectory,"diagnostics");Directory.CreateDirectory(output);
@@ -44,15 +65,20 @@ public partial class App : Application
         if(codexWindowTest){RunCodexWindowTest(codexReadyTest);return;}
         string[] launchArguments=Environment.GetCommandLineArgs();
         var dispatcher=Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+        if(startupTest){Codex=new(dispatcher);RunStartupTest();return;}
         if(floatingTest){Codex=new(dispatcher);RunFloatingTest();return;}
         if(toolbarTest){Codex=new(dispatcher);RunToolbarTest();return;}
-        Codex=new(dispatcher,Settings);
+        StartupDiagnostics.Record("provider");Codex=new(dispatcher,Settings);
+        StartupDiagnostics.Record("restore-panel");
+        if(!launchArguments.Contains("--smoke-test")&&File.Exists(Path.Combine(Settings.DirectoryPath,"conversations.db")))Panel=new FloatingPanelWindow(this);
+        StartupDiagnostics.Record("tray");
         tray=new(Settings,()=>dispatcher.TryEnqueue(BeginCapture),()=>dispatcher.TryEnqueue(ShowSettings),()=>dispatcher.TryEnqueue(Shutdown),()=>dispatcher.TryEnqueue(ShowFloatingBall));
-        if(!launchArguments.Contains("--smoke-test"))ShowFloatingBall();
+        StartupDiagnostics.Record("floating-ball");if(!launchArguments.Contains("--smoke-test"))ShowFloatingBall();
         if(Environment.GetCommandLineArgs().Contains("--capture"))BeginCapture();
         if(Environment.GetCommandLineArgs().Contains("--settings"))ShowSettings();
         if(Environment.GetCommandLineArgs().Contains("--smoke-test"))RunSmokeTest();
         tray.Notify("AI ScreenShot 已启动","点击右侧悬浮球展开；Ctrl+Alt+S 截图。右键托盘可找回悬浮球。");
+        StartupDiagnostics.Record("ready");
     }
     private async void RunCodexProviderTest()
     {
@@ -207,8 +233,9 @@ public partial class App : Application
             nint closedOverlayHandle=overlay.Handle;Panel.Close();
             if(Panel!=null||Native.IsWindowVisible(closedOverlayHandle))throw new InvalidOperationException("Closing message panel did not dismiss capture overlay");
             string codexChecks=await VerifyCodexPanelSendAsync(fixture);
-            string composerChecks=await VerifyComposerAndBrowserAsync(fixture);
+            string composerChecks=await VerifyComposerAndAgentAsync(fixture);
             composerChecks+=await VerifyTextOnlyComposerAsync();
+            composerChecks+=await VerifyConcurrentConversationsAsync();
             await File.WriteAllTextAsync(Path.Combine(output,"floating-ui-test.txt"),"PASS: 52 logical pixel native ball, panel creation, empty state and Light/Dark generated previews\nPASS: ball toggles both panels; toolbar arrow collapses independently and restores\nPASS: shared toolbar/message width alignment through production resize callbacks; monitor bounds retained\nPASS: native Markdown controls render headings, emphasis, quote, list, code and table\nPASS: 120 streaming Markdown snapshots retain raw text immediately, render the latest table once, and flush final content\nPASS: processing state, operation hide/restore, successful capture dismissal retains messages\nPASS: on-top details, concurrent preview replacement, collapsed/operation preview stays closed after decoding\nPASS: hidden ball remains hidden, collapse/reopen, cancelled capture does not reopen\nPASS: closing message panel dismisses capture overlay\n"+fluentChecks+visibilityAndResizeChecks+moveChecks+codexChecks+composerChecks+"No desktop screenshot, clipboard access, browser connection, or real send was performed.\n");
         }
         catch(Exception e){await File.WriteAllTextAsync(Path.Combine(output,"floating-ui-test.txt"),"FAIL: "+e.GetType().Name+": "+e.Message+"\n"+e.StackTrace);Environment.ExitCode=1;}
@@ -497,7 +524,7 @@ public partial class App : Application
         }
         finally{Settings.Workspace=previousWorkspace;}
     }
-    private async Task<string> VerifyComposerAndBrowserAsync(byte[] fixture)
+    private async Task<string> VerifyComposerAndAgentAsync(byte[] fixture)
     {
         string previousDefault=Settings.DefaultPrompt;string? previousWorkspace=Settings.Workspace;
         try

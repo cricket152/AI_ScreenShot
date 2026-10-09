@@ -24,6 +24,7 @@ internal static class CodexProviderTests
         await CheckPreparationFailuresAsync(Check);
         await CheckProviderAsync(Check);
         await CheckTextOnlyAsync(Check);
+        await CheckResumeAsync(Check);
         return checks;
     }
 
@@ -610,6 +611,30 @@ internal static class CodexProviderTests
         check(output.MethodCount("turn/start")==1,"A text-only Codex request is submitted once");
     }
 
+    private static async Task CheckResumeAsync(Action<bool,string> check)
+    {
+        string directory=Path.GetTempPath();var input=new ChannelTextReader();var output=new ChannelTextWriter();
+        using var provider=new CodexProviderTarget(new Settings(),(_,_)=>new CodexRpcClient(input,output),_=>"fake.exe");
+        string? savedThread=null,savedTurn=null;
+        var request=new SendRequest([],"继续当前对话",new("test",directory)){Conversation=new(){ThreadId="saved-thread",SessionChanged=(thread,turn)=>{savedThread=thread;savedTurn=turn;}}};
+        var running=provider.SendWithReplyAsync(request,_=>{},CancellationToken.None);
+        await AcceptReadinessAsync(input,output,check,directory);
+        var resume=await output.NextAsync();
+        check(resume.GetProperty("method").GetString()=="thread/resume"&&resume.GetProperty("params").GetProperty("threadId").GetString()=="saved-thread","Codex resumes only the selected conversation's stored native thread");
+        Reply(input,resume,new{thread=new{id="saved-thread"}});
+        var turn=await output.NextAsync();
+        check(turn.GetProperty("method").GetString()=="turn/start"&&turn.GetProperty("params").GetProperty("threadId").GetString()=="saved-thread"&&savedThread=="saved-thread"&&savedTurn==null,"Acknowledged thread ID is persisted before turn submission");
+        Reply(input,turn,new{turn=new{id="saved-turn"}});input.Add(Terminal("completed","saved-thread","saved-turn").GetRawText());
+        check((await running.WaitAsync(TimeSpan.FromSeconds(3))).State==SendState.Sent&&savedTurn=="saved-turn"&&output.MethodCount("thread/start")==0,"Resumed turns persist their exact IDs without creating another thread");
+        var recoveryInput=new ChannelTextReader();var recoveryOutput=new ChannelTextWriter();
+        using var recoveryProvider=new CodexProviderTarget(new Settings(),(_,_)=>new CodexRpcClient(recoveryInput,recoveryOutput),_=>"fake.exe");
+        var recovering=recoveryProvider.RecoverAsync(new(){ThreadId="saved-thread",TurnId="saved-turn",Workspace=request.Workspace},CancellationToken.None);
+        var initialize=await recoveryOutput.NextAsync();Reply(recoveryInput,initialize,new{});await recoveryOutput.NextAsync();
+        var read=await recoveryOutput.NextAsync();
+        check(read.GetProperty("method").GetString()=="thread/read"&&read.GetProperty("params").GetProperty("includeTurns").GetBoolean(),"Recovery uses only the public thread/read API");
+        Reply(recoveryInput,read,new{thread=new{turns=new[]{new{id="saved-turn",status="completed",items=new[]{new{id="answer",type="agentMessage",text="recovered answer",phase="final_answer"}}}}}});
+        check(await recovering is {Phase:CodexReplyPhase.Completed,Text:"recovered answer"}&&recoveryOutput.MethodCount("turn/start")==0,"Recovery reconciles a native terminal reply without resubmitting content");
+    }
     private static async Task<JsonElement> AcceptPreparationAsync(ChannelTextReader input,ChannelTextWriter output,Action<bool,string> check,string directory,bool rejectName=false,object? configuration=null,object? models=null)
     {
         var thread=await AcceptThreadStartAsync(input,output,check,directory,configuration,models);

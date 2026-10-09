@@ -48,6 +48,18 @@ internal static class AgentTests
         updates.Clear();
         using(var client=new AgentClient(()=>settings,new Handler(async(message,token)=>
         {
+            using var document=JsonDocument.Parse(await message.Content!.ReadAsStringAsync(token));
+            var history=document.RootElement.GetProperty("messages");
+            Check(history.GetArrayLength()==4&&history[1].GetProperty("role").GetString()=="user"&&history[2].GetProperty("role").GetString()=="assistant","Agent sends structured history only from the provided conversation");
+            Check(history[1].GetProperty("content")[1].GetProperty("type").GetString()=="image_url"&&history[3].GetProperty("content").GetArrayLength()==1,"Previous screenshots remain usable when the next turn contains only text");
+            return Response("{\"choices\":[{\"message\":{\"content\":\"history reply\"}}]}");
+        })))
+        {
+            var request=new SendRequest([],"follow-up",null){Conversation=new(){History=[new("user","isolated question",[1,2]),new("assistant","isolated reply")]}};
+            Check((await client.SendAsync(request,CancellationToken.None)).State==SendState.Sent,"Agent history completes through the existing transport");
+        }
+        using(var client=new AgentClient(()=>settings,new Handler(async(message,token)=>
+        {
             requests++;
             Check(message.Method==HttpMethod.Post&&message.RequestUri!.AbsolutePath=="/v1/chat/completions","Single POST uses compatible endpoint");
             Check(message.Headers.Authorization?.Scheme=="Bearer"&&message.Headers.Authorization.Parameter==testKey,"Bearer authentication is used");
