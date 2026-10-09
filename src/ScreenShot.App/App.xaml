@@ -68,6 +68,17 @@
                 <Setter Property="CornerRadius" Value="{StaticResource SS.Corner.Control}" />
                 <Setter Property="Padding" Value="{StaticResource SS.Padding.Control}" />
             </Style>
+            <Style x:Key="SS.MessageCopyButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+                <Setter Property="Width" Value="28" />
+                <Setter Property="Height" Value="28" />
+                <Setter Property="MinWidth" Value="28" />
+                <Setter Property="MinHeight" Value="28" />
+                <Setter Property="Padding" Value="6" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+                <Setter Property="CornerRadius" Value="{StaticResource SS.Corner.Control}" />
+            </Style>
             <Style x:Key="SS.PrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource AccentButtonStyle}">
                 <Setter Property="MinHeight" Value="{StaticResource SS.ControlHeight}" />
                 <Setter Property="FontSize" Value="{StaticResource SS.Typography.Body}" />

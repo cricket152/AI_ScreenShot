@@ -8,6 +8,64 @@ namespace ScreenShot.App;
 
 internal static class RuntimeDiagnostics
 {
+    internal static async Task<string> VerifyMessageSelectionAsync(FloatingPanelWindow panel,string output)
+    {
+        const string fixture="# 选择测试\n\n第一段 **粗体** 与 [链接](https://example.test)。\n\n第二段 *斜体* 和 ~~删除线~~。\n\n> 引用文字\n>\n> > 内层引用\n\n1. 有序条目\n  - 嵌套条目\n\n```csharp\nvar value = \"代码文字\";\nConsole.WriteLine(value);\n```\n\n| 名称 | 内容 |\n| --- | --- |\n| 表格文字 | 中文 😀 |\n\n---\n\n最后一段文字";
+        var pending=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var copied=new List<string>();bool fail=false;
+        var message=new MarkdownMessageView(async value=>
+        {
+            copied.Add(value);await pending.Task;
+            if(fail)throw new IOException("Generated copy failure");
+        }){Text=fixture};
+        var root=new Grid{Padding=new Thickness(16)};root.Children.Add(new ScrollViewer{Content=message});
+        var window=new Window{Content=root};window.AppWindow.Resize(new Windows.Graphics.SizeInt32(520,640));
+        var foreground=Native.GetForegroundWindow();
+        void InvokeCopy()=>((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(message.CopyButton!).GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
+        try
+        {
+            window.Activate();await Task.Delay(100);root.UpdateLayout();
+            foreach(var theme in new[]{ElementTheme.Light,ElementTheme.Dark})
+            {
+                root.RequestedTheme=theme;await Task.Delay(80);root.UpdateLayout();
+                if(Descendants<RichTextBlock>(message).Count()!=1||message.SelectionSurface.Blocks.Count<12)throw new InvalidOperationException("Markdown selection is split across text controls");
+                var selection=message.SelectionSurface;
+                selection.Select(selection.Blocks[1].ContentStart,selection.Blocks[2].ContentEnd);
+                if(!selection.SelectedText.Contains("第一段 粗体")||!selection.SelectedText.Contains("第二段 斜体"))throw new InvalidOperationException("Native selection cannot span paragraphs");
+                selection.SelectAll();
+                foreach(string expected in new[]{"选择测试","第一段","第二段","引用文字","内层引用","有序条目","嵌套条目","代码文字","Console.WriteLine(value);","表格文字","中文 😀","最后一段文字"})
+                    if(!selection.SelectedText.Contains(expected,StringComparison.Ordinal))throw new InvalidOperationException("SelectAll omitted Markdown content");
+                var textBounds=selection.TransformToVisual(message).TransformBounds(new Windows.Foundation.Rect(0,0,selection.ActualWidth,selection.ActualHeight));
+                var buttonBounds=message.CopyButton!.TransformToVisual(message).TransformBounds(new Windows.Foundation.Rect(0,0,message.CopyButton.ActualWidth,message.CopyButton.ActualHeight));
+                if(buttonBounds.Top<textBounds.Bottom||Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(message.CopyButton)=="")throw new InvalidOperationException("Full-message copy action is not accessible below the reply");
+                if(message.CopyButton.Content is not FontIcon icon||icon.Glyph!="\uE8C8"||icon.FontSize!=14||buttonBounds.Width>28||buttonBounds.Height>28||ToolTipService.GetToolTip(message.CopyButton) as string!="复制全文"||message.CopyButton.BorderThickness!=new Thickness(0))throw new InvalidOperationException("Copy action is not a compact icon with a tooltip");
+                await File.WriteAllBytesAsync(Path.Combine(output,$"message-selection-{theme}.png"),await RenderAsync(root));
+            }
+            InvokeCopy();await Task.Delay(30);
+            if(copied.Count!=1||copied[0]!=fixture||message.CopyButton!.IsEnabled)throw new InvalidOperationException("Copy omitted raw Markdown or did not disable repeated clicks");
+            const string streamed="## 流式标题\n\n第一段新内容\n\n第二段新内容";
+            message.SetStreamingText(streamed);await Task.Delay(150);
+            pending.TrySetResult();await message.CopyTask!.WaitAsync(TimeSpan.FromSeconds(5));
+            if(copied[0]!=fixture||!message.CopyButton.IsEnabled)throw new InvalidOperationException("Streaming mutated a pending copy snapshot");
+            message.SelectionSurface.SelectAll();
+            if(!message.SelectionSurface.SelectedText.Contains("第一段新内容")||!message.SelectionSurface.SelectedText.Contains("第二段新内容"))throw new InvalidOperationException("Streaming recreated separate selection ranges");
+            InvokeCopy();await Task.Delay(30);await message.CopyTask!.WaitAsync(TimeSpan.FromSeconds(5));
+            if(copied.Count!=2||copied[1]!=streamed)throw new InvalidOperationException("Copy used stale streamed content");
+            fail=true;InvokeCopy();await Task.Delay(30);await message.CopyTask!.WaitAsync(TimeSpan.FromSeconds(5));
+            if(!message.CopyButton.IsEnabled||!Descendants<TextBlock>(message).Any(block=>block.Text=="复制失败，请重试"))throw new InvalidOperationException("Failed copy left the action unusable or hid the failure");
+            fail=false;InvokeCopy();await Task.Delay(30);await message.CopyTask!.WaitAsync(TimeSpan.FromSeconds(5));
+            if(!Descendants<TextBlock>(message).Any(block=>block.Text=="已复制"))throw new InvalidOperationException("Copy cannot recover after a failure");
+            message.Text="";
+            if(message.CopyButton.IsEnabled)throw new InvalidOperationException("Empty replies can be copied");
+            string large=string.Concat(Enumerable.Repeat("长段落 中文 😀\n\n",2048))+"全文结束";message.Text=large;root.UpdateLayout();message.SelectionSurface.SelectAll();
+            if(!message.SelectionSurface.SelectedText.Contains("全文结束")||message.Text!=large)throw new InvalidOperationException("Large replies were truncated");
+            if(panel.ResponseView is {} response&&response.CopyButton?.IsEnabled!=true)throw new InvalidOperationException("Conversation reply lacks its full-message copy action");
+            string result="PASS: single native Markdown document selects across paragraphs and SelectAll includes headings, nested quotes/lists, code, table cells and Unicode in Light/Dark\nPASS: accessible copy button below each reply copies raw full text, keeps a pending snapshot, follows streamed content and permits retry after failure; empty/large replies checked\nNo user clipboard was read or written; the copy writer received only generated fixtures.\n";
+            await File.WriteAllTextAsync(Path.Combine(output,"message-selection-test.txt"),result);return result;
+        }
+        finally{pending.TrySetResult();window.Close();if(foreground!=0)Native.SetForegroundWindow(foreground);}
+    }
+
     internal static async Task<string> VerifyFluentPanelAsync(FloatingPanelWindow panel,FloatingBallWindow ball,string output)
     {
         VerifyAppIcons(panel,ball);

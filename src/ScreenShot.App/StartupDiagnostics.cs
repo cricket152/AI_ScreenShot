@@ -48,7 +48,9 @@ public partial class App
             if(!Native.IsWindowVisible(Ball!.Handle)||!Native.IsWindowVisible(Panel.Handle))throw new InvalidOperationException("Restored floating windows are not visible");
             Panel.SelectConversationForDiagnostic(second.Id);
             if(Panel.ResponseText!="fixture reply")throw new InvalidOperationException("Restored history is unavailable");
+            if(Panel.ResponseView?.CopyButton?.IsEnabled!=true)throw new InvalidOperationException("Restored replies have no full-message copy action");
             string appearanceChecks=Environment.GetCommandLineArgs().Contains("--conversation-appearance-test")?await RuntimeDiagnostics.VerifyConversationAppearanceAsync(Panel,output):"";
+            if(Environment.GetCommandLineArgs().Contains("--message-selection-test"))appearanceChecks+=await RuntimeDiagnostics.VerifyMessageSelectionAsync(Panel,output);
             if(closedFixture!=null)appearanceChecks+=await RuntimeDiagnostics.VerifyConversationHistoryAsync(Panel,storage,closedFixture,output);
             if(StartupDiagnostics.ErrorCount!=0)throw new InvalidOperationException("Unhandled exception during cold startup");
             Panel.Close();Panel=null;

@@ -192,7 +192,8 @@ public partial class App : Application
             }
             await File.WriteAllBytesAsync(Path.Combine(output,"floating-resized.png"),await RuntimeDiagnostics.RenderAsync(root));
             var markdown=new MarkdownMessageView{Text="# 标题\n\n**粗体**、*斜体*与 `code`。\n\n> 引用\n\n- 第一项\n- 第二项\n\n```csharp\nConsole.WriteLine(\"fixture\");\n```\n\n| 项目 | 状态 |\n| --- | --- |\n| Markdown | 可用 |"};
-            if(markdown.RenderedBlockCount<6||markdown.RenderedControlCount<=markdown.RenderedBlockCount)throw new InvalidOperationException("Native Markdown did not produce rich controls for its blocks");
+            if(markdown.RenderedBlockCount<6||markdown.RenderedControlCount!=1||markdown.SelectionSurface.Blocks.Count<8)throw new InvalidOperationException("Native Markdown did not retain its blocks in one selectable document");
+            await RuntimeDiagnostics.VerifyMessageSelectionAsync(Panel,output);
             var beforeStreaming=markdown.Document;string table="| 序号 | 状态 |\n| --- | --- |";int renderedCallbacks=0;
             for(int row=0;row<120;row++)
             {
@@ -567,7 +568,7 @@ public partial class App : Application
             await panel.PresentAsync(fixture,new PixelRect(0,0,320,200));
             if(!panel.CanSendFromComposer)throw new InvalidOperationException("Composer send button did not enable after a capture");
             await InvokeComposerAsync();
-            if(requests.Count!=1||requests[0].EffectivePrompt!=Settings.DefaultPrompt||panel.ResponseRenderedBlockCount<3||panel.CanSendFromComposer||panel.MessageCount!=2)
+            if(requests.Count!=1||requests[0].EffectivePrompt!=Settings.DefaultPrompt||panel.ResponseRenderedBlockCount<3||panel.ResponseView?.CopyButton?.IsEnabled!=true||panel.CanSendFromComposer||panel.MessageCount!=2)
                 throw new InvalidOperationException("Composer lost default prompt, Markdown output or confirmed submission protection");
             await panel.PresentAsync(fixture,new PixelRect(0,0,320,200));panel.PromptText="**生成的手动提示词**";await InvokeComposerAsync();
             if(requests.Count!=2||requests[1].EffectivePrompt!=panel.PromptText)throw new InvalidOperationException("Manual prompt did not override the configured default");

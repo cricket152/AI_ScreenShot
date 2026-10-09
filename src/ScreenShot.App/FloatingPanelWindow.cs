@@ -141,6 +141,7 @@ internal sealed partial class FloatingPanelWindow : Window
     internal bool CanSendToCodex=>codex.IsEnabled;
     internal bool CanSendToAgent=>agent.IsEnabled;
     internal string ResponseModelName=>latestResponseModel?.Text??"";
+    internal MarkdownMessageView? ResponseView=>latestResponse;
     internal bool CanSendFromComposer=>send.IsEnabled;
     internal Button ComposerSendButton=>send;
     internal ComboBox ComposerModeSelector=>composerMode;
@@ -807,7 +808,7 @@ internal sealed partial class FloatingPanelWindow : Window
         var userRecord=new ConversationMessage{Role="user",Client=target,Text=request.EffectivePrompt,Image=view.Data.DraftImage};
         var replyRecord=new ConversationMessage{Role="assistant",Client=target};
         view.Data.Messages.Add(userRecord);view.Data.Messages.Add(replyRecord);Persist(view);
-        var response=new MarkdownMessageView{Text="正在发送…"};
+        var response=CreateResponseView("正在发送…");
         var responseHeading=StyledText(target+" · 发送状态","SS.CaptionTextStyle");responseHeading.TextTrimming=TextTrimming.CharacterEllipsis;
         view.MessageViews[replyRecord.Id]=response;view.MessageHeadings[replyRecord.Id]=responseHeading;
         var responseModel=StyledText(isCodex?"":(app.Settings.Agent.ModelName??"").Trim(),"SS.CaptionTextStyle");
@@ -925,7 +926,7 @@ internal sealed partial class FloatingPanelWindow : Window
     {
         await PresentAsync(fixture,new PixelRect(0,0,320,200));
         await AddUserMessageAsync(new(fixture,"请解释截图中的信息，并给出下一步建议。",null),"布局示例");
-        var reply=new StackPanel{Spacing=UiDesign.Number("SS.Spacing.S")};reply.Children.Add(StyledText("Codex · 布局示例","SS.CaptionTextStyle"));reply.Children.Add(new MarkdownMessageView{Text="## 截图分析\n\n这是**回复的显示位置**，支持 Markdown。\n\n- 等待期间显示正在思考\n- 完成后展示结果\n\n```text\n生成图布局示例\n```\n\n| 项目 | 状态 |\n| --- | --- |\n| 原生渲染 | 已启用 |"});AddBubble(reply,true);
+        var reply=new StackPanel{Spacing=UiDesign.Number("SS.Spacing.S")};reply.Children.Add(StyledText("Codex · 布局示例","SS.CaptionTextStyle"));reply.Children.Add(CreateResponseView("## 截图分析\n\n这是**回复的显示位置**，支持 Markdown。\n\n- 等待期间显示正在思考\n- 完成后展示结果\n\n```text\n生成图布局示例\n```\n\n| 项目 | 状态 |\n| --- | --- |\n| 原生渲染 | 已启用 |"));AddBubble(reply,true);
         SetStatus("布局预览 · 使用生成图片和示例文本");
     }
     internal void ShowProcessingPreview(){SetStatus("布局预览 · Codex 正在思考 / 正在处理",true);}

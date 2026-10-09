@@ -71,6 +71,10 @@ WinUI 的后续窗口样式更新可能重新加入 WS_DLGFRAME / WS_EX_WINDOWED
 “界面过渡动画”与 UISettings.AnimationsEnabled 共同控制过渡，关闭即提交目标状态；截图/操作立即隐藏，恢复保持 NoActivate。悬浮球保留已有缩放及系统动画策略。
 ## 验证
 
+消息正文共用单个原生 `RichTextBlock` 的 `Paragraph` / `Run` / `Hyperlink`，标题、列表、引用、代码和表格文字均可跨段选择。代码块自动换行，表格用带列分隔符的连续文本行，避免子文本控件打断选择。回答底部左侧的原生复制图标按钮使用 MessageCopyButtonStyle：28px 点击区域、14px Segoe Fluent Copy 图标、透明背景、无描边；保留原生悬停/按下/键盘焦点、可访问名称、“复制全文”悬停提示和成功/失败反馈。参考 Astryx IconButton 的 ghost 模式与无障碍约定，不增加 Web 依赖。复制点击时的完整 Markdown 原文，流式更新不改变已开始的复制快照，剪贴板仍使用既有序列保护和占用重试。历史恢复、新回复使用同一构造入口。
+
+`ScreenShot.App.exe --startup-test --message-selection-test` 使用临时会话与独立原生测试窗口，覆盖明暗主题的跨段 Select、全文 SelectAll（含嵌套引用/列表、代码、表格、Unicode）、按钮位置与可访问名称、完整原文复制快照、流式更新、复制失败重试及空/长回复。复制写入器只接收生成测试内容，不读写用户剪贴板；`--floating-ui-test` 同样执行此专项检查，并检查新回复的复制按钮。
+
 `scripts/verify.ps1` 验证 App 编译与核心回归。`ScreenShot.App.exe --startup-test` 用临时 SQLite 历史先创建消息面板、再创建悬浮球，覆盖正常历史恢复的冷启动顺序；首个 backdrop 前确保 Windows.System 消息队列存在。`ScreenShot.App.exe --floating-ui-test` 使用生成图和注入发送回调，检查双主题、420px 工具条、520px 设置窗口、五类页面、未保存输入、原生按钮状态、菜单、移动、缩放、流式跟随和防重发。材质诊断切换三种材质和 0/37/100% 底色，检查独立连接、主题 tint、失焦配置、前台保持及不透明内容；结果记录系统当前实际控制器状态。
 
 过渡诊断实际检查透明 HWND 零 alpha、没有 native region 和额外面板 Clip，两块原生材质/描边及空白命中；采样向右扩展的固定左端/顶部和收起过程中阴影几何同步。设置检查仅两组材质编辑器，没有底板项；保留菜单/移动/缩放/流式/防重发与主题/窄窗回归。

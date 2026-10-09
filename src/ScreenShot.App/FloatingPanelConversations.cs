@@ -11,6 +11,9 @@ namespace ScreenShot.App;
 
 internal sealed partial class FloatingPanelWindow
 {
+    private MarkdownMessageView CreateResponseView(string text)
+        =>new(content=>ClipboardService.TextAsync(content,token:lifetime.Token)){Text=text};
+
     private Workspace? DefaultWorkspace()=>app.Settings.Workspace is {} name?new(name,app.Settings.CodexDirectory):
         app.Settings.CodexDirectory is {} directory?new(CodexDirectoryPicker.DisplayName(directory),directory):null;
 
@@ -59,7 +62,7 @@ internal sealed partial class FloatingPanelWindow
                     var image=store?.ReadImage(record.Image)??[];
                     if(image.Length>0){var button=new Button{Content="查看截图",HorizontalAlignment=HorizontalAlignment.Left};UiDesign.Apply(button,"SS.QuietButtonStyle");button.Click+=async(_,_)=>await ShowPreviewAsync(image);body.Children.Add(button);}
                 }
-                var text=new MarkdownMessageView{Text=record.Text};body.Children.Add(text);AddBubble(body,record.Role=="assistant",view);
+                var text=record.Role=="assistant"?CreateResponseView(record.Text):new MarkdownMessageView{Text=record.Text};body.Children.Add(text);AddBubble(body,record.Role=="assistant",view);
                 view.MessageViews[record.Id]=text;
                 if(record.Role=="assistant")view.latestResponse=text;
                 if(record.Role=="user"&&record.State is "Sent" or "Unknown")
