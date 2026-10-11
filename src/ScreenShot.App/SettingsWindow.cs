@@ -8,7 +8,7 @@ using ScreenShot.Core;
 
 namespace ScreenShot.App;
 
-internal sealed class SettingsWindow : Window
+internal sealed partial class SettingsWindow : Window
 {
     private readonly App app;
     private readonly AnimationScope motion;
@@ -66,9 +66,12 @@ internal sealed class SettingsWindow : Window
     internal Slider ShadowOpacitySlider=>shadowOpacity;
     internal Slider AccentMixSlider=>accentMix;
 
-    internal SettingsWindow(App app,Func<uint,uint,bool> changeHotkey)
+    internal SettingsWindow(App app,Func<uint,uint,bool> changeHotkey,string? storageDirectory=null,Func<string,Task>? openStorageFolder=null)
     {
         this.app=app;motion=app.Animations.CreateScope();this.changeHotkey=changeHotkey;Title="AI ScreenShot 设置";
+        localStorageDirectory=storageDirectory??(Environment.GetCommandLineArgs().Any(argument=>argument.EndsWith("-test",StringComparison.Ordinal))?
+            Path.Combine(AppContext.BaseDirectory,"diagnostics","storage-fixtures","unopened-"+Guid.NewGuid().ToString("N")):Settings.DirectoryPath);
+        openLocalFolder=openStorageFolder??OpenLocalFolderAsync;
         SystemBackdrop=new MicaBackdrop();
         var settings=app.Settings;
         enableAnimations.IsOn=settings.PanelAppearance.EnableAnimations;
@@ -104,7 +107,8 @@ internal sealed class SettingsWindow : Window
         app.Themes.Track(this);app.Themes.Changed+=UpdateAccentPreview;UpdateAccentPreview();
         if(string.IsNullOrEmpty(feedback.Message))SetFeedback(app.Settings.LoadWarning??"设置在点击保存后生效",app.Settings.LoadWarning==null?InfoBarSeverity.Informational:InfoBarSeverity.Warning);
         ResizeToWorkArea();
-        Closed+=(_,_)=>{motion.Dispose();app.Themes.Changed-=UpdateAccentPreview;app.ApplyAppearance(app.Settings.PanelAppearance);};
+        Activated+=(_,args)=>{if(!storageBusy&&!storageClosed&&args.WindowActivationState!=WindowActivationState.Deactivated&&navigation.SelectedItem is NavigationViewItem{Tag:"general"})StorageTask=RefreshLocalStorageAsync();};
+        Closed+=(_,_)=>{storageClosed=true;StorageConfirmation?.Hide();storageLifetime.Cancel();storageLifetime.Dispose();motion.Dispose();app.Themes.Changed-=UpdateAccentPreview;app.ApplyAppearance(app.Settings.PanelAppearance);};
     }
 
     private void BuildPages()
@@ -119,6 +123,7 @@ internal sealed class SettingsWindow : Window
         for(int index=0;index<checks.Length;index++)
         {checks[index].MinWidth=0;Grid.SetColumn(checks[index],index%2);Grid.SetRow(checks[index],index/2);modifiers.Children.Add(checks[index]);}
         general.Children.Add(SettingRow("修饰键","至少选择一个；保存时检查快捷键是否被占用。",modifiers));
+        general.Children.Add(BuildLocalStorageCard());
 
         var appearance=Page("appearance","外观与材质","调节工具栏和消息面板的材质、色彩与阴影。","\uE790");
         foreach(var selector in new[]{appTheme,accentMode}){selector.MinHeight=UiDesign.Number("SS.ControlHeight");selector.CornerRadius=UiDesign.Corner("SS.Corner.Control");}
@@ -259,6 +264,7 @@ internal sealed class SettingsWindow : Window
                 if(saveButton!=null)
                 {string label=tag=="appearance"?"保存外观":tag=="motion"?"保存动效":tag=="agent"?"保存 Agent":"保存设置";saveButton.Content=ActionContent(label,"\uE74E");UiDesign.Label(saveButton,label);}
                 pageScroller.Content=page.Content;pageScroller.ChangeView(null,0,null,true);
+                if(tag=="general"&&!storageBusy)StorageTask=RefreshLocalStorageAsync();
                 motion.WatchTree(page.Content,AnimationArea.Settings);
                 if(navigation.IsLoaded)motion.Enter(page.Content,AnimationArea.Settings);
                 if(navigation.IsLoaded&&navigation.DisplayMode==NavigationViewDisplayMode.Minimal)navigation.IsPaneOpen=false;

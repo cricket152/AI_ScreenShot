@@ -40,19 +40,21 @@ public sealed class ConversationContext
 }
 
 // Windows ships this SQLite engine. No external service, NuGet native payload or initialization is needed.
-public sealed class ConversationStore : IDisposable
+public sealed partial class ConversationStore : IDisposable
 {
     private nint database;
-    private readonly object gate=new();
+    private readonly StoreAccess access;
+    private object gate=>access.Gate;
     public string DirectoryPath {get;}
     public string? Warning {get;private set;}
     public string? SelectedId {get;private set;}
-    public ConversationStore(string directory)
+    public ConversationStore(string directory,bool allowRecovery=true)
     {
         DirectoryPath=Path.GetFullPath(directory);Directory.CreateDirectory(DirectoryPath);
+        access=StoreLocks.GetOrAdd(DirectoryPath.TrimEnd(Path.DirectorySeparatorChar),_=>new());
         string path=Path.Combine(DirectoryPath,"conversations.db");
-        try{Open(path);}
-        catch(SqliteFailure error) when(error.Code is 11 or 26)
+        try{lock(gate)Open(path,initialize:allowRecovery);}
+        catch(SqliteFailure error) when(allowRecovery&&error.Code is (11 or 26))
         {
             Dispose();
             string recovery=path+".damaged-"+DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
@@ -63,22 +65,38 @@ public sealed class ConversationStore : IDisposable
         }
         catch{Dispose();throw;}
     }
-    private void Open(string path)
+    private void Open(string path,bool initialize=true)
     {
-        Check(sqlite3_open_v2(path,out database,2|4|0x10000,0));
+        Check(sqlite3_open_v2(path,out database,(initialize?2|4:1)|0x10000,0));
         sqlite3_busy_timeout(database,3000);
         using(var check=Prepare("PRAGMA quick_check"))
         {if(check.Step()==100&&check.Text(0)!="ok")throw new SqliteFailure(11);}
         using(var version=Prepare("PRAGMA user_version"))
-        {if(version.Step()==100&&version.Integer(0)>1)throw new InvalidDataException("对话数据库版本较新，请使用新版应用打开。");}
-        Execute("PRAGMA journal_mode=WAL");Execute("PRAGMA synchronous=FULL");
-        Execute("CREATE TABLE IF NOT EXISTS conversations(id TEXT PRIMARY KEY, data TEXT NOT NULL)");
-        Execute("CREATE TABLE IF NOT EXISTS preferences(key TEXT PRIMARY KEY, value TEXT NOT NULL)");
-        Execute("PRAGMA user_version=1");
+        {
+            if(version.Step()==100)
+            {
+                if(version.Integer(0)>1)throw new InvalidDataException("对话数据库版本较新，请使用新版应用打开。");
+                if(!initialize&&version.Integer(0)!=1)throw new InvalidDataException("对话索引未完整初始化，为保护截图已取消清理。");
+            }
+        }
+        if(initialize)
+        {
+            Execute("PRAGMA journal_mode=WAL");Execute("PRAGMA synchronous=FULL");
+            Execute("CREATE TABLE IF NOT EXISTS conversations(id TEXT PRIMARY KEY, data TEXT NOT NULL)");
+            Execute("CREATE TABLE IF NOT EXISTS preferences(key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+            Execute("PRAGMA user_version=1");
+        }
+        else
+        {
+            // Inspection must reject missing schema rather than recreate an empty index and lose image references.
+            using var conversations=Prepare("SELECT id,data FROM conversations LIMIT 0");
+            using var preferences=Prepare("SELECT key,value FROM preferences LIMIT 0");
+        }
         using var selected=Prepare("SELECT value FROM preferences WHERE key='selected'");
         if(selected.Step()==100)SelectedId=selected.Text(0);
     }
-    public IReadOnlyList<Conversation> Load()
+    public IReadOnlyList<Conversation> Load()=>Load(requireAll:false);
+    private IReadOnlyList<Conversation> Load(bool requireAll)
     {
         lock(gate)
         {
@@ -96,7 +114,10 @@ public sealed class ConversationStore : IDisposable
                     result.Add(item);
                 }
                 catch(Exception error) when(error is JsonException or NotSupportedException)
-                {Warning="部分历史记录无法读取，已跳过；其他对话仍可使用，原始记录保留在数据库。";}
+                {
+                    if(requireAll)throw new InvalidDataException("部分对话无法读取，为保护截图已取消清理。");
+                    Warning="部分历史记录无法读取，已跳过；其他对话仍可使用，原始记录保留在数据库。";
+                }
             }
             return result.OrderBy(c=>c.Order).ToArray();
         }
@@ -108,6 +129,8 @@ public sealed class ConversationStore : IDisposable
             conversation.UpdatedUtc=DateTime.UtcNow;
             using var statement=Prepare("INSERT INTO conversations(id,data) VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET data=excluded.data");
             statement.Bind(1,conversation.Id);statement.Bind(2,JsonSerializer.Serialize(conversation));statement.Step();
+            access.PendingImages.ExceptWith((conversation.Messages??[]).Where(message=>message!=null).Select(message=>message.Image).Append(conversation.DraftImage).OfType<string>());
+            access.Revision++;
         }
     }
     public void Select(string id)
@@ -120,10 +143,23 @@ public sealed class ConversationStore : IDisposable
     }
     public string SaveImage(byte[] png)
     {
-        string name=Guid.NewGuid().ToString("N")+".png";
-        string folder=Path.Combine(DirectoryPath,"screenshots");Directory.CreateDirectory(folder);
-        // Finish the image before committing its reference to SQLite.
-        File.WriteAllBytes(Path.Combine(folder,name),png);return name;
+        lock(gate)
+        {
+            string name=Guid.NewGuid().ToString("N")+".png";
+            string folder=Path.Combine(DirectoryPath,"screenshots");Directory.CreateDirectory(folder);
+            // Finish the image before committing its reference to SQLite.
+            File.WriteAllBytes(Path.Combine(folder,name),png);return name;
+        }
+    }
+    public void SaveDraftImage(Conversation conversation,byte[] png)
+    {
+        lock(gate)
+        {
+            // Cleanup must never observe an image between writing its bytes and saving its reference.
+            conversation.DraftImage=SaveImage(png);conversation.Images.Add(conversation.DraftImage);
+            // A failed database save must also preserve the image used by the in-memory draft this session.
+            access.PendingImages.Add(conversation.DraftImage);access.Revision++;Save(conversation);
+        }
     }
     public byte[] ReadImage(string? name)
     {
@@ -137,6 +173,7 @@ public sealed class ConversationStore : IDisposable
         lock(gate)
         {
             using var statement=Prepare("DELETE FROM conversations WHERE id=?1");statement.Bind(1,conversation.Id);statement.Step();
+            access.Revision++;
             var referenced=Load().SelectMany(c=>c.Messages.Select(m=>m.Image).Append(c.DraftImage).OfType<string>().Concat(c.Images??[])).ToHashSet(StringComparer.Ordinal);
             foreach(string name in conversation.Messages.Select(m=>m.Image).Append(conversation.DraftImage).OfType<string>().Concat(conversation.Images??[]).Distinct())
             {

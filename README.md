@@ -60,6 +60,10 @@ Windows 11 x64 原生托盘截图工具。`.NET 10 + WinUI 3 + Windows App SDK +
 
 设置窗口使用 `NavigationView`，分为“常规与快捷键 / 外观与材质 / 动效设置 / Codex / Agent / 关于”，标题与说明位于设置行左侧，原生控件位于右侧；窄窗口自动上下排列，切换分类保留未保存输入。保存、工作目录选择及连接检测沿用原流程。
 
+“常规与快捷键”底部提供“本地存储”卡片，显示本地 PNG 数量、总占用、保存路径及可清理数量，提供“打开文件夹”和“清理未使用截图”。打开设置、返回该栏目或重新激活窗口时刷新统计。清理无需保存设置：先显示确认范围，默认取消；只删除 screenshots 顶层符合本工具随机文件名规则、且未被任何消息/当前草稿使用的 PNG。关闭的历史对话、正在发送的消息和未持久化成功的本次运行草稿也受保护；旧 Images 集合只记录所有权，不代表图片仍在使用。“清空当前对话”本身仍不删除文件，后续可清理已无引用的旧截图。
+
+清理逐个复核引用及文件大小/修改时间；新近被使用或变化的图片跳过，未知文件名、其他类型、子目录和链接保留。缺失、损坏、缺少必要数据表或无法完整读取的对话索引，以及 damaged 备份会禁用清理；清理检查不补建数据表或恢复数据库。结果显示实际删除数量、释放空间和跳过/失败数量，随后刷新占用。统计与清理在后台执行，关闭设置取消后续工作；此操作不保存其他设置，也不删除对话文字、Codex 原生会话或手动另存到其他目录的图片。
+
 “外观与材质”新增“应用主题：明 / 暗 / 系统”和“主题颜色：跟随 Windows / 自定义颜色”。主题统一应用于设置、悬浮入口、消息面板及截图详情；系统模式监听 Windows 应用主题变化。自定义颜色通过原生 ColorPicker 选择，支持色谱、RGB 和 HEX 输入，用于按钮、选中指示和链接；自动选择高对比按钮文字，高对比度主题继续使用系统资源。跟随 Windows 时使用系统强调色，禁用自定义编辑器。修改实时预览，“保存外观”持久化，关闭设置撤销未保存修改；不会更改 Windows 配置。正文保持中性色，强调色用于交互状态，并可按比例混入两栏材质。
 
 设置使用 Mica；悬浮界面没有公共底板，只由工具栏和消息面板直接绘制各自的圆角材质，宿主透明且不使用 HWND 或额外矩形裁切。“外观与材质”仅有两组 Acrylic / 轻透 Acrylic / 透明色层与 0–100% 背景不透明度，默认工具条 42%、消息 82%；两组均选择透明色层即可关闭额外模糊。文字、截图与按钮保持清晰，保留预览、保存、默认及关闭撤销。52px 悬浮入口保留原生交互及缩放过渡。
@@ -119,7 +123,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\publish.ps1 -OutputDirectory 
 
 上述发布命令输出为 `dist/AIScreenShot-win-x64-followup-v1`。发布脚本拒绝混入仍有旧桥接文件的目录，请使用新的输出目录。SDK 构建、协议测试、真实桌面联调的实际结果见 `PROJECT_STATUS.md`，不能将构建成功视为两端发送成功。
 
-新版便携包为 `dist/AIScreenShot-win-x64-followup-v1`，修复截图发送后其他标签的文字追问按钮禁用，包含 composer-v1 紧凑输入区/Ctrl+Enter、motion-v2 原生动效和此前全屏阅读、输入折叠、数学渲染、跨段选择/复制、截图跨工作区发送、多标签并行会话和 SQLite 本地记忆。验证记录见 PROJECT_STATUS.md。请先从托盘退出旧实例，再启动新版，避免单实例锁使旧版继续响应快捷键；真实服务与混合 DPI 多屏仍需桌面验收。
+新版便携包为 `dist/AIScreenShot-win-x64-followup-v1`，修复截图发送后其他标签的文字追问按钮禁用，包含 storage-v1 本地存储卡片和未使用截图清理、composer-v1 紧凑输入区/Ctrl+Enter、motion-v2 原生动效和此前全屏阅读、输入折叠、数学渲染、跨段选择/复制、截图跨工作区发送、多标签并行会话和 SQLite 本地记忆。验证记录见 PROJECT_STATUS.md。请先从托盘退出旧实例，再启动新版，避免单实例锁使旧版继续响应快捷键；真实服务与混合 DPI 多屏仍需桌面验收。
 
 已确认程序图标见 [图标设计说明](docs/icon-candidates/README.md)，采用截图取景框和 AI 星芒。多尺寸 ICO 用于可执行文件、窗口/任务栏和托盘，同设计 PNG 用于悬浮入口。
 
@@ -132,6 +136,8 @@ Provider 连接专项诊断：`ScreenShot.App.exe --codex-provider-test` 检查�
 截图跨对话专项：`ScreenShot.App.exe --startup-test --capture-routing-test` 使用生成 PNG、临时数据库和注入发送器，验证截图后切换/新建/重开标签、不同工作目录、原生发送按钮、提示词保留、防重发/失败重试、后台请求快照、解码竞态与重启恢复；报告与样例为 `diagnostics/capture-routing-test.txt`、`capture-routing.png`。完整 `--floating-ui-test` 同样执行，不截取桌面、操作用户剪贴板或请求真实模型。
 
 紧凑输入区专项：`ScreenShot.App.exe --startup-test --composer-test` 检查截图行移除及高度释放，并在测试 HWND 获得前台焦点后注入真实按键，验证 Enter 换行、Ctrl+Enter 发送文字/截图/默认提示词、所选 Codex / Agent 模式、当前标签和 Sent/Unknown/忙碌防重发。另通过原生发送按钮及 Ctrl+Enter 检查第二/第三标签截图后的文字追问、历史图片保留而新消息不重复附图、空白/原提示词保护、失败重试、切换/重启和新截图恢复发送，以及新建无图标签的纯文本发送。报告与生成图为 `diagnostics/composer-test.txt`、`composer-compact.png`；仅使用生成 PNG、专用数据库和注入发送器，不操作用户内容、剪贴板或真实模型。
+
+本地存储专项：`ScreenShot.App.exe --startup-test --storage-test` 使用专用 SQLite、生成 PNG 和注入文件夹打开器，通过原生按钮验证统计/路径、Light/Dark/窄窗、确认取消/执行、历史/草稿/流式图片保留、未知文件名、占用刷新、设置草稿隔离及关闭确认不删除。报告和生成图为 `diagnostics/storage-test.txt`、`storage-light.png`、`storage-dark.png`、`storage-narrow.png`。Core 测试另覆盖并发保存、确认后新增引用/文件变化、取消、文件占用、缺失/损坏/不完整索引、缺表检查不修改数据库、确认后数据表丢失及备份保护。所有显式 EXE 自测的设置窗口默认使用独立生成路径，不扫描或清理用户目录。
 
 全屏/输入折叠专项：`ScreenShot.App.exe --startup-test --reading-mode-test` 使用临时数据库和生成图，通过原生图标 Invoke 检查当前显示器全屏、标签置顶、尺寸及工具栏恢复、全屏禁用拖动/缩放/球跟随、操作隐藏恢复、向下淡出/快速反向/关闭动画、跨标签草稿与截图保留、新截图展开输入和收起重开。结果写入 `diagnostics/startup-test.txt` 与 `reading-*.png`；完整 `--floating-ui-test` 同样执行，不操作用户数据或请求模型。生成图片不包含系统 backdrop，深色预览存在已知的 RenderTargetBitmap 白块问题，不能代替桌面观感验收。
 

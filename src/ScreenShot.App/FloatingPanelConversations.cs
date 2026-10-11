@@ -90,7 +90,7 @@ internal sealed partial class FloatingPanelWindow
     {
         if(store!=null)
         {
-            try{view.Data.DraftImage=store.SaveImage(image);view.Data.Images.Add(view.Data.DraftImage);}
+            try{store.SaveDraftImage(view.Data,image);return;}
             catch(Exception error) when(error is IOException or UnauthorizedAccessException){storageWarning="截图未能保存，请检查磁盘空间和权限。";SetStatus(storageWarning,destination:view);}
         }
         Persist(view);
