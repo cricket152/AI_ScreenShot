@@ -158,9 +158,10 @@
                 <Setter Property="Height" Value="{StaticResource SS.BallButtonSize}" />
                 <Setter Property="Padding" Value="0" />
                 <Setter Property="CornerRadius" Value="{StaticResource SS.Corner.Ball}" />
-                <Setter Property="BorderThickness" Value="1" />
-                <Setter Property="BorderBrush" Value="{ThemeResource SurfaceStrokeColorDefaultBrush}" />
-                <Setter Property="Background" Value="{ThemeResource AcrylicInAppFillColorDefaultBrush}" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="BorderBrush" Value="Transparent" />
+                <Setter Property="HorizontalContentAlignment" Value="Center" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
             </Style>
             <Style x:Key="SS.PromptTextBoxStyle" TargetType="TextBox">
                 <Setter Property="FontSize" Value="{StaticResource SS.Typography.Body}" />

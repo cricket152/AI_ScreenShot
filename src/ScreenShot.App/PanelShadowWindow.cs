@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using ScreenShot.Core;
+using Windows.UI;
 
 namespace ScreenShot.App;
 
@@ -11,6 +12,7 @@ internal sealed class PanelShadowWindow : IDisposable
     internal nint Handle {get;}
     private PanelGeometry.Shape[] previous=[];
     private double previousSpread=-1,previousOpacity=-1;
+    private uint? previousTint;
     private bool disposed;
     private nint memory,bitmap,old,bits;
     private int bufferWidth,bufferHeight;
@@ -31,13 +33,19 @@ internal sealed class PanelShadowWindow : IDisposable
         if(Handle==0)throw new Win32Exception(Marshal.GetLastWin32Error(),"无法创建面板阴影");
     }
     internal void Hide(){if(!disposed)Native.ShowWindow(Handle,0);}
-    internal void Update(IReadOnlyList<PanelGeometry.Shape> shapes,PanelAppearance appearance,double scale,bool highContrast,bool prepare=false)
+    internal void PlaceBelow()
+    {
+        if(disposed||unavailable||!Native.IsWindowVisible(Handle))return;
+        if(!Native.SetWindowPos(Handle,panel,0,0,0,0,0x01|0x02|0x10))
+        {FallbackCount++;unavailable=true;Hide();}
+    }
+    internal void Update(IReadOnlyList<PanelGeometry.Shape> shapes,PanelAppearance appearance,double scale,bool highContrast,bool prepare=false,Color? tint=null)
     {
         if(disposed||unavailable)return;
-        try{UpdateCore(shapes,appearance,scale,highContrast,prepare);}
+        try{UpdateCore(shapes,appearance,scale,highContrast,prepare,tint);}
         catch(Win32Exception){FallbackCount++;unavailable=true;Hide();}
     }
-    private void UpdateCore(IReadOnlyList<PanelGeometry.Shape> shapes,PanelAppearance appearance,double scale,bool highContrast,bool prepare)
+    private void UpdateCore(IReadOnlyList<PanelGeometry.Shape> shapes,PanelAppearance appearance,double scale,bool highContrast,bool prepare,Color? tint)
     {
         if(disposed)return;
         if(!appearance.ShowShadow||appearance.ShadowSpread<=0||appearance.ShadowOpacity<=0||highContrast||(!prepare&&!Native.IsWindowVisible(panel))||shapes.Count==0){Hide();return;}
@@ -49,17 +57,28 @@ internal sealed class PanelShadowWindow : IDisposable
         // Cache the full mask during a shared fade; only SourceConstantAlpha changes.
         double opacity=Math.Clamp(shapes.Max(shape=>shape.Opacity),0,1);
         byte alpha=(byte)Math.Round(opacity*255);
+        Color color=tint??Color.FromArgb(255,0,0,0);
+        uint rgb=(uint)(color.R<<16|color.G<<8|color.B);
         var maskGeometry=shapes.Select(shape=>shape with{Opacity=opacity>0?Math.Round(shape.Opacity/opacity,5):1}).ToArray();
-        bool render=previousSpread!=spread||previousOpacity!=appearance.ShadowOpacity||!previous.SequenceEqual(maskGeometry);
+        bool render=previousSpread!=spread||previousOpacity!=appearance.ShadowOpacity||previousTint!=rgb||!previous.SequenceEqual(maskGeometry);
         if(render)
         {
             long start=System.Diagnostics.Stopwatch.GetTimestamp();
             var maskShapes=maskGeometry.Select(shape=>new ShadowShape(shape.Left-left,shape.Top-top,shape.Right-shape.Left,shape.Bottom-shape.Top,shape.Diameter/2d,shape.Opacity)).ToArray();
             var pixels=PanelShadowMask.Render(width,height,maskShapes,spread,appearance.ShadowOpacity);
+            if(rgb!=0)
+                for(int offset=0;offset<pixels.Length;offset+=4)
+                {
+                    // UpdateLayeredWindow requires premultiplied BGRA; tint alpha is owned by the mask.
+                    int pixelAlpha=pixels[offset+3];
+                    pixels[offset]=(byte)((color.B*pixelAlpha+127)/255);
+                    pixels[offset+1]=(byte)((color.G*pixelAlpha+127)/255);
+                    pixels[offset+2]=(byte)((color.R*pixelAlpha+127)/255);
+                }
             LastMaskTicks=System.Diagnostics.Stopwatch.GetTimestamp()-start;
             Upload(pixels,width,height,bounds.Left+left,bounds.Top+top,alpha);MaskRenderCount++;
             LastPixels=pixels;LastRenderTicks=System.Diagnostics.Stopwatch.GetTimestamp()-start;
-            previous=maskGeometry;previousSpread=spread;previousOpacity=appearance.ShadowOpacity;
+            previous=maskGeometry;previousSpread=spread;previousOpacity=appearance.ShadowOpacity;previousTint=rgb;
         }
         else if(alpha!=ConstantAlpha)Upload(null,width,height,bounds.Left+left,bounds.Top+top,alpha);
         if(!Native.GetWindowRect(Handle,out var current)||current.Left!=bounds.Left+left||current.Top!=bounds.Top+top||current.Right-current.Left!=width||current.Bottom-current.Top!=height||(!prepare&&!Native.IsWindowVisible(Handle)))

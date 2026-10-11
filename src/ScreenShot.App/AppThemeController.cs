@@ -143,7 +143,7 @@ internal sealed class AppThemeController : IDisposable
         }
     }
 
-    private SolidColorBrush SystemBrush(string key,ElementTheme theme)
+    internal SolidColorBrush SystemBrush(string key,ElementTheme theme)
     {
         if(!probes.TryGetValue(key,out var probe))
         {probe=(Border)XamlReader.Load($"<Border xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" Background=\"{{ThemeResource {key}}}\" />");probes.Add(key,probe);}
@@ -173,7 +173,7 @@ internal sealed class AppThemeController : IDisposable
         {static double Linear(byte channel){double value=channel/255d;return value<=0.04045?value/12.92:Math.Pow((value+0.055)/1.055,2.4);}return Linear(color.R)*0.2126+Linear(color.G)*0.7152+Linear(color.B)*0.0722;}
         double a=Luminance(first),b=Luminance(second);return (Math.Max(a,b)+0.05)/(Math.Min(a,b)+0.05);
     }
-    private static Color Mix(Color color,Color target,double amount)
+    internal static Color Mix(Color color,Color target,double amount)
         =>Color.FromArgb(255,(byte)Math.Round(color.R+(target.R-color.R)*amount),(byte)Math.Round(color.G+(target.G-color.G)*amount),(byte)Math.Round(color.B+(target.B-color.B)*amount));
 
     public void Dispose()

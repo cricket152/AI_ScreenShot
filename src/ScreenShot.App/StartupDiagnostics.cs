@@ -57,6 +57,7 @@ public partial class App
             if(Environment.GetCommandLineArgs().Contains("--storage-test"))appearanceChecks+=await VerifyStorageAsync(output);
             if(Environment.GetCommandLineArgs().Contains("--reading-mode-test"))appearanceChecks+=await VerifyReadingModeAsync(output);
             if(Environment.GetCommandLineArgs().Contains("--animation-test"))appearanceChecks+=await VerifyAnimationsAsync(output);
+            if(Environment.GetCommandLineArgs().Contains("--floating-ball-test"))appearanceChecks+=await FloatingBallDiagnostics.VerifyAsync(Ball!,output);
             if(closedFixture!=null)appearanceChecks+=await RuntimeDiagnostics.VerifyConversationHistoryAsync(Panel,storage,closedFixture,output);
             if(StartupDiagnostics.ErrorCount!=0)throw new InvalidOperationException("Unhandled exception during cold startup");
             Panel.Close();Panel=null;

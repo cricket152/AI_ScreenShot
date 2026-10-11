@@ -17,7 +17,11 @@ internal sealed class FloatingBallWindow : Window
     private readonly Action expand;
     private readonly SubclassProc subclass;
     private readonly AnimationScope motion;
-    private readonly AdjustableBackdrop backdrop=new(new(ScreenShot.Core.SurfaceMaterial.AcrylicThin,0.42));
+    private readonly FloatingBallVisual visual;
+    private readonly AppThemeController themes;
+    private readonly Grid root;
+    private PanelShadowWindow? shadowWindow;
+    private bool synchronizingShadow;
     private bool pointerOver,keyboardPressed;
     private bool positioned,pressed,dragging,suppressClick,repositionPending,closed;
     private Native.Point pressPoint;
@@ -28,20 +32,27 @@ internal sealed class FloatingBallWindow : Window
     {
         this.expand=expand;Title="AI ScreenShot 悬浮入口";
         motion=((App)Application.Current).Animations.CreateScope();
+        themes=((App)Application.Current).Themes;
         Handle=WinRT.Interop.WindowNative.GetWindowHandle(this);
         Native.SetWindowLongPtr(Handle,-20,(Native.GetWindowLongPtr(Handle,-20)|0x80)&~0x40000);
         var presenter=OverlappedPresenter.Create();
         presenter.SetBorderAndTitleBar(false,false);presenter.IsResizable=false;
         presenter.IsMaximizable=false;presenter.IsMinimizable=false;presenter.IsAlwaysOnTop=true;
         AppWindow.SetPresenter(presenter);
-        SystemBackdrop=backdrop;
+        uint borderColor=0xFFFFFFFE,cornerPolicy=1;
+        Native.DwmSetWindowAttribute(Handle,34,ref borderColor,sizeof(uint));
+        Native.DwmSetWindowAttribute(Handle,33,ref cornerPolicy,sizeof(uint));
+        SystemBackdrop=new TransparentPanelBackdrop(Handle);
 
         button=new Button{HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center};
         UiDesign.Apply(button,"SS.BallButtonStyle");
-        button.Content=new Image{Source=new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(Path.Combine(AppContext.BaseDirectory,"Assets","AppIcon.png"))),Width=32,Height=32,Stretch=Stretch.Uniform};
+        visual=new FloatingBallVisual(button);
         AutomationProperties.SetName(button,"AI ScreenShot 悬浮入口");
         ToolTipService.SetToolTip(button,"AI ScreenShot · 点击展开或收起，拖动贴边");
-        var root=new Grid();root.Children.Add(button);Content=root;
+        root=new Grid{Background=new SolidColorBrush(Microsoft.UI.Colors.Transparent)};root.Children.Add(button);Content=root;
+        root.ActualThemeChanged+=ThemeChanged;themes.Changed+=UpdateAppearance;
+        button.RegisterPropertyChangedCallback(Control.IsEnabledProperty,(_,_)=>UpdateAppearance());
+        Activated+=(_,e)=>{visual.Active=e.WindowActivationState!=WindowActivationState.Deactivated;UpdateAppearance();};
         button.Click+=(_,_)=>{if(!suppressClick&&!dragging)this.expand();};
         button.PointerEntered+=(_,_)=>{pointerOver=true;UpdateFeedback();};
         button.PointerExited+=(_,_)=>{pointerOver=false;UpdateFeedback();};
@@ -63,8 +74,34 @@ internal sealed class FloatingBallWindow : Window
 
         subclass=WindowMessage;
         if(!SetWindowSubclass(Handle,subclass,1,0))throw new InvalidOperationException("无法初始化悬浮入口窗口");
-        Closed+=(_,_)=>{closed=true;backdrop.Dispose();motion.Dispose();RemoveWindowSubclass(Handle,subclass,1);};
-        ((App)Application.Current).Themes.Track(this);
+        shadowWindow=new(Handle);
+        Native.SetWindowLongPtr(Handle,-16,Native.GetWindowLongPtr(Handle,-16)&~0x00c40000);
+        Native.SetWindowLongPtr(Handle,-20,Native.GetWindowLongPtr(Handle,-20)&~0x00020300);
+        if(!Native.SetWindowPos(Handle,0,0,0,0,0,0x01|0x02|0x04|0x10|0x20))throw new InvalidOperationException("无法更新悬浮入口客户区");
+        Closed+=(_,_)=>{closed=true;shadowWindow.Dispose();themes.Changed-=UpdateAppearance;root.ActualThemeChanged-=ThemeChanged;motion.Dispose();RemoveWindowSubclass(Handle,subclass,1);};
+        themes.Track(this);UpdateAppearance();
+    }
+
+    private void ThemeChanged(FrameworkElement sender,object args)=>UpdateAppearance();
+    private void UpdateAppearance(){if(!closed){visual.Update(themes,root);UpdateShadow();}}
+    internal Button EntranceButton=>button;
+    internal FloatingBallVisual Visual=>visual;
+    internal PanelShadowWindow ShadowWindow=>shadowWindow!;
+
+    private void UpdateShadow()
+    {
+        if(closed||shadowWindow==null||synchronizingShadow)return;
+        synchronizingShadow=true;
+        try
+        {
+            double scale=Math.Max(96u,Native.GetDpiForWindow(Handle))/96d;
+            var appearance=themes.Appearance;
+            var shadowAppearance=appearance with{ShadowSpread=Math.Min(6,appearance.ShadowSpread/2),ShadowOpacity=Math.Min(0.22,appearance.ShadowOpacity*1.1)};
+            int inset=(int)Math.Round(2*scale),end=(int)Math.Round(50*scale),diameter=(int)Math.Round(48*scale);
+            shadowWindow.Update([new(inset,inset,end,end,diameter)],shadowAppearance,scale,themes.IsHighContrast(root),tint:visual.ShadowColor);
+            shadowWindow.PlaceBelow();
+        }
+        finally{synchronizingShadow=false;}
     }
 
     public void Present()
@@ -173,7 +210,20 @@ internal sealed class FloatingBallWindow : Window
 
     private nint WindowMessage(nint window,uint message,nint wparam,nint lparam,nuint id,nuint data)
     {
+        // Keep the 52px host entirely client area: presenter/backdrop changes can restore WS_DLGFRAME.
+        if(message==0x007C&&lparam!=0)
+        {
+            var styles=Marshal.PtrToStructure<Native.WindowStyles>(lparam);
+            if(wparam==-16)styles.New&=~0x00c40000u;
+            else if(wparam==-20)styles.New&=~0x00020300u;
+            Marshal.StructureToPtr(styles,lparam,false);return 0;
+        }
+        if(message==0x0083)return 0;
+        if(message==0x0014&&TransparentPanelBackdrop.ClearBackground(window,wparam))return 1;
+        if(message==0x031E)TransparentPanelBackdrop.EnableAlpha(window);
+        if(message==0x0018&&wparam==0)shadowWindow?.Hide();
         nint result=DefSubclassProc(window,message,wparam,lparam);
+        if(message==0x0047)UpdateShadow();
         if(message is 0x02E0 or 0x007E or 0x001A)
         {
             if(!repositionPending&&!closed)

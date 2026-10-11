@@ -1,5 +1,17 @@
 # 原生 UI 设计
 
+## 悬浮球视觉（2026-10-11）
+
+白边原因为 52px HWND 的 Acrylic 外层、48px 按钮的 1px 系统描边，以及 presenter 恢复的隐藏 WS_DLGFRAME；实际客户区曾只有 46px，按钮被裁切。悬浮球复用 TransparentPanelBackdrop 与现有透明宿主的样式/NCCALCSIZE/背景清除策略，关闭系统外框/圆角；保留原来的椭圆窗口区域、52px 尺寸、拖动/吸附/跟随/点击回调。完整客户区内只有一个 48px 圆形按钮，2px 透明空间容纳已有微缩放，边缘由 WinUI 抗锯齿处理；不再叠加外层 Acrylic 或白色圆环。
+
+`FloatingBallVisual` 根据参考图使用原生 [PathIcon](https://learn.microsoft.com/en-us/windows/apps/develop/ui/controls/icons) 绘制四个对称、圆润的取景框边角和中央曲线四角星芒。图标固定纯白 `#FFFFFF`，32px 紧凑几何占 48px 主体约 67%，不含方形底板和透明留白。参考图片仅用于形状与材质方向，不嵌入图片或其白色背景；原始 AppIcon PNG/ICO 与托盘/窗口图标保留。只借鉴 Astryx Button 的图标可访问名称、状态对比度和轻量层次约定，继续使用原生 DefaultButtonStyle、焦点提示与 CommonStates。
+
+颜色由现有 AppThemeController 的 AccentColor、主题底色和 Mix/Contrast 派生，监听 Changed 与 ActualThemeChanged；外观即时预览、保存、撤销以及 Windows 主题更新沿用原机制，不新增配置。背景为三个色阶的柔和主题色渐变，alpha 为 247/255；左上叠加低强度 RadialGradientBrush 高光，轮廓使用 0.65px 渐变细线。明亮强调色自动压暗，计算时包含半透明主体叠加白色桌面以及最亮高光，保持白色图形至少 3:1 的对比度。默认、悬停、按下、窗口激活及禁用沿用同一色系，禁用减弱高光与轮廓；高对比度取消渐变、高光、轮廓及外部阴影，采用系统 Button 各状态背景资源，必要时调整背景明度以保留白色图标的可读性。缩放继续由 AnimationScope 的 Toolbar 配置、风格、速度与系统动效偏好控制，不新增定时器或第三方依赖。
+
+主体和图标优先使用 WinUI 3；52px 圆形 HWND 内无法容纳完整扩散阴影，因此仅外阴影复用 PanelShadowWindow 的原生透明 layered HWND，不扩大球的点击区域。沿用现有 ShowShadow / ShadowSpread / ShadowOpacity 配置，悬浮球取较小扩散（最多 6px）和较低不透明度（最多 22%），颜色由当前强调色压暗派生。阴影只绘制在圆形主体外围，内部与外部留白正确保留 alpha；使用预乘 BGRA，复用模糊蒙版和 GDI 缓冲区。阴影窗口置于悬浮球下方、穿透鼠标且不激活，随球移动、DPI、主题及显隐更新，关闭时释放。PanelShadowWindow 的 tint 参数默认为黑色，工具栏和消息面板的原有阴影行为保持兼容；拖动、吸附、点击、展开和窗口位置管理沿用原逻辑。
+
+`--startup-test --floating-ball-test` 使用生成控件/专用 SQLite 检查五种状态、Light/Dark 与七种自定义色、白色图形叠加高光后的对比度、透明宿主/圆周与主体 alpha、完整客户区、100/125/150/200% 控件渲染，以及阴影透明度、预乘颜色、输入穿透、位置跟随、缓存和显隐。生成 PNG、较大尺寸原生视觉预览与报告位于 diagnostics，不截图用户桌面。不同尺寸的 RenderTargetBitmap 检查不等于真实跨屏 DPI 切换；系统高对比度和混合 DPI 多屏鼠标观感仍需桌面验收。
+
 ## 本地存储（2026-10-11）
 
 “常规与快捷键”底部复用 SettingRow 卡片，左侧显示说明、PNG 数量/占用、可选择复制的路径和清理结果，右侧提供“打开文件夹”“清理未使用截图”；窄窗沿用上下排列。参考 Astryx Button 的动作标签、异步忙碌/禁用与可访问提示约定，保留原生 WinUI 风格，无新增依赖。统计在打开/返回常规页和窗口激活时异步刷新；清理独立于保存设置，ContentDialog 展示数量与空间，默认取消；未使用文件也不可恢复。清理按钮在无候选/索引不完整或操作中禁用，ProgressRing 表示忙碌，结果通过 Polite live setting 宣告。
@@ -61,7 +73,7 @@
 
 - 设置窗口使用原生 `NavigationView`，分类为常规与快捷键、外观与材质、动效设置、Codex、Agent、关于。各页编辑控件缓存于窗口中，切换分类保留未保存输入。每行只有一层卡片：标题和说明在左、控件在右；窄内容宽度时上下排列。修饰键使用原生 CheckBox 的两列布局。
 - 设置窗口仍使用 Mica；悬浮宿主始终透明且没有底板，工具条和消息面板各放置一个原生 `SystemBackdropElement`，使用独立控制器和圆角。Acrylic 由 DWM 合成窗口后方当前可见的画面，随着后方窗口变化，不使用壁纸采样、桌面截图或轮询目标窗口。
-- 悬浮入口 HWND 仍为 52 逻辑像素；48px 按钮留出微缩放空间，原有拖动、贴边与点击回调保留。系统禁用动画时不运行缩放过渡。
+- 悬浮入口 HWND 为 52 逻辑像素透明宿主，关闭隐藏的非客户区边框；48px 主题色玻璃按钮和 32px 白色矢量符号留出微缩放空间，原有拖动、贴边与点击回调保留。独立透明阴影层位于球后方，系统禁用动画时不运行缩放过渡。
 - 工具条继续横向排列，五个动作使用相同尺寸和图标规则；最小 420px 面板内等宽缩小。单一下拉菜单支持两栏显隐及工具条缩小/扩展：缩小后仅 Codex / Agent 和菜单箭头，目标宽度约 202 逻辑像素；消息面板宽度保留。仅小工具条可见时 HWND 同步收窄，移动/高度缩放保留，扩展恢复原宽度。正常双栏仍共享宽度；原生窗口非客户区按实际 client rect 计算，避免双栏边缘错位。
 - 输入 Surface 仅保留提示词、发送按钮和模式选择，移除当前截图缩略图/尺寸与“截取屏幕”按钮，直接释放整行高度。截图仍保存在各标签草稿及最新截图快照中，发送后继续显示消息气泡图片；截图入口沿用全局快捷键与空对话按钮。
 - 默认 `Ctrl+Enter` 在输入区内发送当前截图与提示词，普通 `Enter` 保留多行换行。依据 [WinUI 键盘事件顺序](https://learn.microsoft.com/en-us/windows/apps/develop/input/keyboard-accelerators)，使用输入容器的 `PreviewKeyDown` 在 TextBox 内建处理前拦截准确的 Control+Enter；设置 UIA AcceleratorKey 与提示文字。按钮与按键走同一个发送入口，检查当前标签、显隐/折叠、忙碌及防重发状态。作用域包括折叠箭头，避免禁用输入框后的焦点迁移使连续 Ctrl+Enter 错误收起输入区；不成为全局热键。
@@ -80,7 +92,7 @@
 
 - 每个区域可选择 Acrylic、轻透 Acrylic 或透明色层，底色不透明度范围 0–100%。数字越小越通透；Acrylic 在 0% 时仍保留原生模糊与纹理，100% 时由底色覆盖。标准 Acrylic 额外保留少量明度填充，使正文更稳重；轻透 Acrylic 减少填充。滑块不修改 Window / 控件整体 `Opacity`，文字、截图与按钮保持清晰。色值从系统 ThemeResource 解析，切换主题重新更新控制器 tint / fallback。
 - 透明色层不额外模糊；工具条/消息使用非交互的原生 Border 色层，直接叠加在当前后方窗口上。若要两个面板均无额外模糊，两组材质均选择透明色层。区域外部 backdrop link 不接受任意 Composition brush，因此不向其赋值自建色刷。
-- 各控制器使用独立 `SystemBackdropConfiguration`，保持 `IsInputActive=true`，并同步系统主题与高对比度信息；材质效果不依赖窗口实际输入焦点，也不激活或置顶后方应用。悬浮入口同样保留失焦材质。系统禁用透明效果、远程会话或硬件不支持时仍遵循原生 fallback；透明色层也响应 Windows 高级效果开关。
+- 两栏材质控制器使用独立 `SystemBackdropConfiguration`，保持 `IsInputActive=true`，并同步系统主题与高对比度信息；材质效果不依赖窗口实际输入焦点，也不激活或置顶后方应用。悬浮入口使用透明宿主和轻微半透明主题渐变按钮，激活状态提供细微明度反馈。两栏在系统禁用透明效果、远程会话或硬件不支持时仍遵循原生 fallback；透明色层也响应 Windows 高级效果开关。
 - 修改实时预览已创建的面板；“预览面板”以原有 NoActivate 流程展开，“保存外观”独立保存外观，不依赖快捷键或 CLI 输入验证。“恢复默认”先恢复预览，保存后持久化；关闭设置恢复尚未保存的外观。仅在现有 settings.json 增加 `PanelAppearance`，旧设置自动获得默认值，非法枚举、空对象及越界数值规范化，不改变业务协议。
 - 材质背景不参与命中测试；按钮、选择文本、单一显隐入口、拖动与边缘缩放保留原有行为。控制器与透明刷在 UI 线程释放，外部 element backdrop link 由断开回调在所属线程关闭。
 
@@ -119,7 +131,7 @@ WinUI 的后续窗口样式更新可能重新加入 WS_DLGFRAME / WS_EX_WINDOWED
 
 ## 程序图标
 
-[图标说明](icon-candidates/README.md)记录 imagegen 原始提示词与已确认 PNG：截图取景框、AI 星芒、蓝青至靛蓝圆角底板和透明外部。用户已确认接入，生成十尺寸 ICO 用于 EXE、窗口/任务栏与托盘，256px PNG 用于悬浮入口。窗口通过 [AppWindow.SetIcon](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.windowing.appwindow.seticon) 设置，托盘独立持有并释放 HICON；未新增依赖。
+[图标说明](icon-candidates/README.md)记录 imagegen 原始提示词与已确认 PNG：截图取景框、AI 星芒、蓝青至靛蓝圆角底板和透明外部。用户已确认接入，十尺寸 ICO 用于 EXE、窗口/任务栏与托盘，256px PNG 保留为原图资源；悬浮入口独立使用纯白取景框与曲线星芒的原生 PathIcon。窗口通过 [AppWindow.SetIcon](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.windowing.appwindow.seticon) 设置，托盘独立持有并释放 HICON；未新增依赖。
 
 ## 面板边框
 
@@ -135,7 +147,7 @@ WinUI 的后续窗口样式更新可能重新加入 WS_DLGFRAME / WS_EX_WINDOWED
 
 DeskBox 的 [WindowShadowSettingsContractTests](https://github.com/Tianyu199509/DeskBox/blob/main/tests/DeskBox.Tests/WindowShadowSettingsContractTests.cs) 显示其窗口阴影选项修改 Windows 全局阴影策略。本项目要求独立扩散/透明度，沿用独立且可调的阴影实现，因此独立实现 `PanelShadowWindow`：非激活、工具型、透明的原生 layered HWND，紧邻主面板后方，使用 [UpdateLayeredWindow](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-updatelayeredwindow) 呈现预乘 BGRA 阴影；不修改 Windows 设置，不采样屏幕。返回 HTTRANSPARENT，并使用 WS_EX_TRANSPARENT / NOACTIVATE，阴影不接收鼠标和焦点。
 
-- 设置新增面板阴影开关、0–32 逻辑像素扩散、0–50% 不透明度，默认开启 / 12px / 16%。关闭、扩散 0 或不透明度 0 时隐藏阴影，数值保留；高对比度禁用阴影。
+- 设置新增面板阴影开关、0–32 逻辑像素扩散、0–50% 不透明度，默认开启 / 12px / 16%。关闭、扩散 0 或不透明度 0 时隐藏阴影，数值保留；高对比度禁用阴影。悬浮球复用该配置派生小范围主题色阴影，面板继续使用默认黑色阴影。
 - `PanelShadowMask` 只计算圆角边界外围的柔和衰减，清除全部面板内部的 alpha，避免把透明玻璃染黑；两栏独立阴影取包络，不累加变浓。只遍历边缘带，内部使用连续清零；几何/配置相同则复用已上传位图，移动只同步位置。动画按当前区域及 alpha 同步；截图/操作前立即隐藏，窗口关闭销毁阴影 HWND，临时 GDI 位图/DC finally 释放。此次约 1.9MB 阴影缓冲的单次诊断，构建运行记录重绘 2.42ms（mask 0.96ms），发布包记录 24.80ms（mask 23.16ms）；时序存在波动，不作为稳定帧率或正式基准。
 - 材质混色参考 DeskBox 的 [WidgetMaterialVisualCalculator](https://github.com/Tianyu199509/DeskBox/blob/main/src/DeskBox/Services/WidgetMaterialVisualCalculator.cs) 与 [WidgetMaterialSystemBackdrop](https://github.com/Tianyu199509/DeskBox/blob/main/src/DeskBox/Services/WidgetMaterialSystemBackdrop.cs) 的 tint / fallback 接入方式，独立实现中性主题色与原始强调色的 RGB 插值。设置提供 0–100%“材质主题色混入”，默认 18%；两块面板同步，0% 保持原中性色，100% 使用强调色。Acrylic 保留原控制器与底色不透明度，只改变 tint / fallback；透明色层使用相同混色。主题/系统强调色变化实时更新，高对比度使用系统颜色，文字/截图整体不透明度不变。建议使用较低混入比例保持正文可读。
 

@@ -70,7 +70,7 @@ Windows 11 x64 原生托盘截图工具。`.NET 10 + WinUI 3 + Windows App SDK +
 
 “外观与材质”提供“面板边框”开关及 0.5–3px 粗细滑块，默认开启/1px，工具栏和消息面板边框跟随主题颜色；关闭保留所选宽度。
 
-“外观与材质”提供“面板阴影”开关、0–32px 扩散和 0–50% 不透明度，默认 12px/16%；阴影只绘制在两栏外围，内部透明、穿透输入、截图前同步隐藏。0–100% 材质主题色混入默认 18%，同步改变两栏的 tint / fallback；原背景不透明度独立，文字和截图不变淡。
+“外观与材质”提供“面板阴影”开关、0–32px 扩散和 0–50% 不透明度，默认 12px/16%；两栏阴影只绘制在外围，内部透明、穿透输入、截图前同步隐藏。悬浮球复用同一组阴影配置，派生较小、较轻的主题色外阴影，随球显隐和移动。0–100% 材质主题色混入默认 18%，同步改变两栏的 tint / fallback；原背景不透明度独立，文字和截图不变淡。
 
 “界面过渡动画”控制工具栏缩小/扩展、两栏显隐及悬浮球展开，默认使用 180ms 柔和过渡并尊重 Windows 动画开关；工具栏固定左端向右展开，阴影随实际两栏同步移动、收起。截图/操作前立即隐藏。底板、隐藏底板开关及底板材质/透明度配置已经移除；旧 JSON 自动忽略这些字段，保存时不再输出，保留两栏和业务配置。
 
@@ -118,14 +118,16 @@ SDK 已放置在 `.tools/dotnet`。没有该目录时安装 .NET 10 SDK。首次
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\verify.ps1
-powershell -ExecutionPolicy Bypass -File .\scripts\publish.ps1 -OutputDirectory .\dist\AIScreenShot-win-x64-followup-v1
+powershell -ExecutionPolicy Bypass -File .\scripts\publish.ps1 -OutputDirectory .\dist\AIScreenShot-win-x64-ball-glass-v2
 ```
 
-上述发布命令输出为 `dist/AIScreenShot-win-x64-followup-v1`。发布脚本拒绝混入仍有旧桥接文件的目录，请使用新的输出目录。SDK 构建、协议测试、真实桌面联调的实际结果见 `PROJECT_STATUS.md`，不能将构建成功视为两端发送成功。
+上述发布命令输出为 `dist/AIScreenShot-win-x64-ball-glass-v2`。发布脚本拒绝混入仍有旧桥接文件的目录，请使用新的输出目录。SDK 构建、协议测试、真实桌面联调的实际结果见 `PROJECT_STATUS.md`，不能将构建成功视为两端发送成功。
 
-新版便携包为 `dist/AIScreenShot-win-x64-followup-v1`，修复截图发送后其他标签的文字追问按钮禁用，包含 storage-v1 本地存储卡片和未使用截图清理、composer-v1 紧凑输入区/Ctrl+Enter、motion-v2 原生动效和此前全屏阅读、输入折叠、数学渲染、跨段选择/复制、截图跨工作区发送、多标签并行会话和 SQLite 本地记忆。验证记录见 PROJECT_STATUS.md。请先从托盘退出旧实例，再启动新版，避免单实例锁使旧版继续响应快捷键；真实服务与混合 DPI 多屏仍需桌面验收。
+新版便携包为 `dist/AIScreenShot-win-x64-ball-glass-v2`，悬浮球根据参考图重绘为主题色玻璃渐变、白色取景框/星芒和柔和外阴影，保留 followup-v1 的文字追问修复、本地存储、紧凑输入区/Ctrl+Enter、原生动效、全屏阅读、数学渲染、跨段选择/复制、截图跨工作区发送、多标签并行会话和 SQLite 本地记忆。验证记录见 PROJECT_STATUS.md。请先从托盘退出旧实例，再启动新版，避免单实例锁使旧版继续响应快捷键；真实服务与混合 DPI 多屏仍需桌面验收。
 
-已确认程序图标见 [图标设计说明](docs/icon-candidates/README.md)，采用截图取景框和 AI 星芒。多尺寸 ICO 用于可执行文件、窗口/任务栏和托盘，同设计 PNG 用于悬浮入口。
+已确认程序图标见 [图标设计说明](docs/icon-candidates/README.md)，采用截图取景框和 AI 星芒。多尺寸 ICO 用于可执行文件、窗口/任务栏和托盘；悬浮入口根据参考图使用纯白 32px 原生矢量图标，四个圆润边角与曲线星芒占 48px 圆形按钮约 67%。主题色三段渐变、轻微半透明主体、左上柔和玻璃高光、纤细轮廓和自然外阴影构成一体化圆形按钮；明亮主题色自动压暗，包含透明叠加和高光后的图形对比度至少 3:1。52px 宿主透明且移除隐藏的系统边框，不嵌入参考图或其白色背景；明/暗/系统与自定义主题色即时同步，五种状态继续复用工具栏动效的风格、速度和开关。高对比度采用系统背景资源并关闭高光、轮廓及阴影，保持白色图标。原始 PNG/ICO 和拖动、点击、吸附、展开功能不变。
+
+悬浮球视觉专项：`ScreenShot.App.exe --startup-test --floating-ball-test` 检查原生五种状态、Light/Dark 与七种自定义色、纯白图形与高光叠加后的对比度、客户区无隐藏边框、圆周透明与主体 alpha、100/125/150/200% 控件渲染，以及外阴影的透明度、预乘颜色、输入穿透、跟随、缓存和显隐。结果与生成图位于 `diagnostics/floating-ball-test.txt`、`ball-*.png`，包括较大尺寸原生视觉预览；不截图桌面、不读写用户历史/剪贴板或发送模型请求。混合 DPI 多屏与系统高对比度的实际观感仍需桌面验收。
 
 运行诊断（可选）：`ScreenShot.App.exe --smoke-test`。生成的 `diagnostics` 仅用于本机测试；界面图片由 WinUI 控件渲染，不保存窗口后方的桌面。真实发送测试参数 `--test-codex-workspace AI_ScreenShot` 仅与 `--smoke-test` 一起使用，发送的是生成的渐变测试图。使用之前关闭已有实例；默认正常启动不执行发送测试。
 

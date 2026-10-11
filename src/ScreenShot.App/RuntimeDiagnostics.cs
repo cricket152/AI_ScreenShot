@@ -670,7 +670,7 @@ internal static class RuntimeDiagnostics
             window.BorderToggle.IsOn=original.ShowBorders;window.BorderWidthSlider.Value=original.BorderThickness;
             window.ShadowToggle.IsOn=original.ShowShadow;window.ShadowSpreadSlider.Value=original.ShadowSpread;window.ShadowOpacitySlider.Value=original.ShadowOpacity*100;window.AccentMixSlider.Value=original.AccentMix*100;
         }
-        return "PASS: executable embedded icon, native window icons, tray icon loading and floating entrance artwork use the approved assets\n"+
+        return "PASS: executable/window/tray icons retain approved assets; floating entrance uses the matching native vector capture/sparkle artwork\n"+
             "PASS: two rounded panes draw over a transparent unclipped HWND; native shadow is outside-only, click-through, nonactivating and follows hide/restore/move; tint mixing changes real material/fallback colors\n"+
             "PASS: outlines follow custom/Windows accent in all themes; native border toggle/0.5-3px slider preserve width and panel geometry without intercepting input\n"+
             "PASS: native Light/Dark/System selectors update settings/ball/panel and material configuration; scoped custom accents reach primary buttons with readable text, including black/white\n"+
@@ -728,8 +728,8 @@ internal static class RuntimeDiagnostics
         nint large=0,small=0;
         try{if(Native.ExtractIconEx(Environment.ProcessPath!,0,out large,out small,1)==0||large==0||small==0)throw new InvalidOperationException("Executable is missing embedded application icons");}
         finally{if(large!=0)Native.DestroyIcon(large);if(small!=0)Native.DestroyIcon(small);}
-        if(!Descendants<Image>((FrameworkElement)ball.Content).Any(image=>image.Source is Microsoft.UI.Xaml.Media.Imaging.BitmapImage bitmap&&bitmap.UriSource?.LocalPath.EndsWith("AppIcon.png",StringComparison.OrdinalIgnoreCase)==true))
-            throw new InvalidOperationException("Floating entrance lost the approved artwork");
+        if(ball.Visual.Icon is not {Data:not null,Width:32,Height:32})
+            throw new InvalidOperationException("Floating entrance lost its vector capture/sparkle artwork");
     }
 
     internal static async Task<string> VerifyConversationAppearanceAsync(FloatingPanelWindow panel,string output)
