@@ -499,7 +499,7 @@ internal static class RuntimeDiagnostics
     {
         var root=(Border)window.Content;var navigation=(NavigationView)root.Child;
         var items=navigation.MenuItems.OfType<NavigationViewItem>().ToArray();
-        if(!items.Select(item=>item.Tag?.ToString()).SequenceEqual(new[]{"general","appearance","codex","agent","about"}))
+        if(!items.Select(item=>item.Tag?.ToString()).SequenceEqual(new[]{"general","appearance","motion","codex","agent","about"}))
             throw new InvalidOperationException("Settings categories are incomplete");
         var pageScroller=(ScrollViewer)((Grid)navigation.Content).Children[1];
         navigation.SelectedItem=items.Single(item=>Equals(item.Tag,"agent"));await Task.Delay(120);
@@ -519,10 +519,14 @@ internal static class RuntimeDiagnostics
         navigation.SelectedItem=items.Single(item=>Equals(item.Tag,"appearance"));await Task.Delay(120);
         var appearancePage=(StackPanel)pageScroller.Content;
         if(Descendants<CheckBox>(appearancePage).Any()||Descendants<TextBlock>(appearancePage).Any(text=>text.Text.Contains("底板")))throw new InvalidOperationException("Retired window base settings are still visible");
-        var animations=Descendants<ToggleSwitch>(appearancePage).Single(toggle=>toggle!=window.BorderToggle&&toggle!=window.ShadowToggle);
+        navigation.SelectedItem=items.Single(item=>Equals(item.Tag,"motion"));await Task.Delay(120);
+        var motionPage=(StackPanel)pageScroller.Content;
+        var animations=Descendants<ToggleSwitch>(motionPage).Single(toggle=>Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(toggle)=="全局动效");
+        if(Descendants<ComboBox>(motionPage).Count()!=1||Descendants<ToggleSwitch>(motionPage).Count()!=5||Descendants<Slider>(motionPage).Single()!=window.MotionSpeedSlider)
+            throw new InvalidOperationException("Standalone motion category requires preset/speed, global and four local switches");
         bool previousMotion=animations.IsOn;
-        var sliders=Descendants<Slider>(appearancePage).Where(slider=>slider!=window.BorderWidthSlider&&slider!=window.ShadowSpreadSlider&&slider!=window.ShadowOpacitySlider&&slider!=window.AccentMixSlider).ToArray();
-        if(sliders.Length!=2||Descendants<ComboBox>(appearancePage).Count()!=4)throw new InvalidOperationException("Appearance settings require theme/accent selectors and exactly two material editors");
+        var sliders=Descendants<Slider>(appearancePage).Where(slider=>slider!=window.BorderWidthSlider&&slider!=window.ShadowSpreadSlider&&slider!=window.ShadowOpacitySlider&&slider!=window.AccentMixSlider&&slider!=window.MotionSpeedSlider).ToArray();
+        if(sliders.Length!=2||Descendants<ComboBox>(appearancePage).Count()!=4||Descendants<ToggleSwitch>(appearancePage).Count()!=2)throw new InvalidOperationException("Appearance settings require theme/accent and exactly two material editors without motion controls");
         var toolbarOpacity=sliders.Single(slider=>Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(slider)=="工具条底色不透明度");
         double previousOpacity=toolbarOpacity.Value;toolbarOpacity.Value=23;
         animations.IsOn=false;
@@ -584,7 +588,7 @@ internal static class RuntimeDiagnostics
         toolbarOpacity.Value=previousOpacity;
         animations.IsOn=previousMotion;
         string themeChecks=await VerifyThemeSettingsAsync(window,output);
-        return themeChecks+"PASS: five native settings categories render in Light/Dark and 520px compact layout without clipped editors or shortcut modifiers\nPASS: settings theme resources update and page navigation retains unsaved prompt and appearance drafts; theme/accent selectors and exactly two native material editors are present with no base settings\n";
+        return themeChecks+"PASS: six native settings categories, including standalone motion, render in Light/Dark and 520px compact layout without clipped editors or shortcut modifiers\nPASS: settings theme resources update and page navigation retains unsaved prompt and appearance drafts; theme/accent selectors and exactly two native material editors are present with no base settings\n";
     }
 
     private static async Task<string> VerifyThemeSettingsAsync(SettingsWindow window,string output)

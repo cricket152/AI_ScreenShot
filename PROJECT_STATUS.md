@@ -1,6 +1,11 @@
 # 项目状态
 
 ## 已完成
+- 2026-10-11 按用户截图精简消息输入区：移除当前截图缩略图/尺寸与“截取屏幕”整行，仅保留原有提示词输入框、发送按钮和 Codex / Agent 模式选择，释放阅读高度，保持卡片/材质/圆角及折叠箭头。当前截图仍按原逻辑保存在各标签草稿、最新截图快照和发送后的用户气泡中，未改变截图入口或会话业务。默认 Ctrl+Enter 在输入区发送当前图片和有效提示词，普通 Enter 换行；按钮与按键共用带当前标签/可见性/忙碌/防重发检查的入口。使用 PreviewKeyDown 处理多行 TextBox 的按键优先级，并覆盖折叠箭头，避免发送时输入框禁用后的焦点迁移导致连续 Ctrl+Enter 错误折叠；UIA 和悬停提示说明快捷键，无新增依赖。
+- 紧凑输入区验证：scripts/verify.ps1 通过（0 warning / 0 error，974 项断言）；dist/AIScreenShot-win-x64-composer-v1 的 --startup-test --composer-test --capture-routing-test --reading-mode-test --animation-test --conversation-appearance-test 组合及完整 --floating-ui-test 均 exit 0。新增 14 项原生输入区检查，包括实际前台 HWND 内 Enter 换行、Ctrl+Enter 文本/截图/默认提示词发送、Agent/Codex 选择、当前标签、Sent/Unknown/忙碌防重发、快速重复按键不折叠、作用域隔离及控件树/高度释放；51 项动效、截图传递、全屏/输入折叠与会话外观回归通过。App/Core DLL 与最终构建 SHA256 相同，git diff --check 通过。仅生成 PNG、专用 SQLite 和注入发送器，不使用用户内容、剪贴板、桌面截图或真实模型请求。发布包保留之前 motion-v2 功能，未 commit/push。
+- 2026-10-11 新增并优化可配置原生动效系统：AnimationSettings / MotionProfile / AnimationService 统一五种预设（关闭、简约、丝滑默认、弹性、灵动）、50%–200% 速度、全局及工具栏/消息面板/标签/消息四个局部开关，兼容旧 EnableAnimations 和现有 System.Text.Json 配置。弹性缩放/位移阻尼分别 0.62/0.67，独立周期 60ms（反馈 50ms）随倍率缩放，形成微小回弹。工具栏与消息面板沿用同一透明 HWND；简约关闭保留布局至淡出完成，打开前以零透明度预备完整阴影，外层 Storyboard 透明度统一驱动正文与独立阴影 HWND，内部 Composition 不再叠加淡化。过渡期间 Rendering 同步阴影，共同淡化复用模糊蒙版和 GDI 缓冲区，透明度更新不移动窗口；完成/中断/关闭解绑并释放。系统动画偏好变化或配置切换立即收尾，动画异常恢复最终状态，阴影 Win32 失败有 fallback 计数并隐藏阴影而不阻止正文。
+- 标签复用控件，支持进入、关闭渐隐与补位、选中内容过渡及水平拖动排序；快速关闭/新建后按会话 ID 协调视觉顺序，排序只交换打开标签的位置，保留关闭历史。后台任务、独立草稿/截图/工作区、Unknown 防重发与流式滚动保持原逻辑。新消息仅在容器首次添加时进入，流式正文不重复播放；截图缩略图添加/替换及完成状态有短反馈。“动效设置”已从外观页移到独立 NavigationView 栏目，右侧显示专属标题/说明、速度/局部开关、实际预览和“保存动效”。动效与外观分别保存/恢复默认，切换保留草稿，关闭回退至各自最后保存值，不持久化另一栏目的未保存修改；无新增依赖。
+- 动效验证：scripts/verify.ps1 通过（0 warning / 0 error，974 项断言）；最终本地包 dist/AIScreenShot-win-x64-motion-v2 的 --startup-test --animation-test --reading-mode-test --capture-routing-test --conversation-appearance-test 组合与 --floating-ui-test 完整回归均 exit 0，含 51 项原生动效检查：新增简约退场布局保留、淡入前零透明度阴影准备、进出场正文/阴影透明度同步、共同淡化不重算模糊、单栏快速反向、独立栏目右侧标题、外观/动效保存候选隔离及生成 JSON 往返；继续覆盖实际 spring batch、取消、标签复用/顺序/草稿/后台、40 次流式更新不重复进入、缩略图替换、设置预览/导航/关闭回退、注入动画异常及关闭释放。六个设置栏目在 Light/Dark 与 520px 窄窗通过回归，旧透明命中/两栏移动缩放/焦点/并发/滚动/材质/全屏通过。系统动画当前开启；速度 200% 的 spring batch 等待约 578ms（v1 约 1.23s），40 个生成流式回调约 15.4ms，均不代表帧率基准或实际观感验收。App/Core DLL 与构建 SHA256 相同，git diff --check 通过。生成 PNG、诊断 SQLite/JSON 与注入发送器不读取用户历史/桌面/剪贴板，不请求真实模型、不写用户设置；诊断样本在包内 diagnostics/animation-fixtures。未 commit/push。
 - 2026-10-09 按截图统一图标外观：新建/历史按钮复用全屏按钮的透明无描边样式，移除输入区上下箭头的白色圆角底板；保留尺寸、点击区域、悬停/按下反馈、提示与键盘操作。改动仅涉及 App.xaml 样式与 FloatingPanelWindow.cs 现有按钮接入，无新增依赖，相关文档同步。scripts/verify.ps1 通过（0 warning / 0 error，910 项断言）；dist/AIScreenShot-win-x64-reading-v2 已发布，--startup-test --reading-mode-test exit 0，原生全屏/输入折叠及流式/跨标签检查通过，App DLL 与构建 SHA256 一致，git diff --check 通过。本次未重复完整界面诊断；上一版的完整回归记录保留。自测不读取用户数据或发送真实模型请求。
 - 2026-10-09 增加全屏阅读及输入区折叠：标签栏“＋”之前放置 14px 全屏/退出图标，进入后消息栏覆盖当前显示器物理范围、标签置顶，工具栏/阴影/悬浮球暂时隐藏，禁用拖动、边缘缩放和球跟随。退出图标或 Esc 恢复原位置、尺寸、两栏显隐与球偏好；新建/切换标签、流式生成和截图操作恢复保持全屏。输入区上沿中央增加 40×20px 小箭头；180ms 向下平移 20px 并淡出，完成后让出阅读空间，保留向上箭头重新展开。快速反向从当前值继续，遵循应用/系统动画开关；草稿/截图保留，停止入口独立，新截图立即展开输入。沿用原生 WinUI，无新增依赖。
 - 本版验证：scripts/verify.ps1 通过（0 warning / 0 error，910 项断言），dist/AIScreenShot-win-x64-reading-v1 已发布，App DLL 与最终构建 SHA256 一致。最终包 --startup-test --reading-mode-test 及完整 --floating-ui-test 均 exit 0；覆盖原生图标 Invoke、当前显示器 HWND 全屏、标签置顶/正文伸展、原尺寸/工具栏状态恢复、操作准备隐藏恢复、快速反向/向下淡出/关闭动画/释放阅读空间、跨标签草稿与截图、全宽流式回复/隐藏输入保留停止/后台完成不改变阅读状态及旧功能回归。生成图/临时数据库/注入发送器自测不读写用户历史或剪贴板、不截图桌面、不发真实请求；git diff --check 通过。深色 RenderTargetBitmap 既有白块问题仍保留，混合 DPI 多屏实际观感待验收。
@@ -28,6 +33,7 @@
 - v3 修复包验证：scripts/verify.ps1 通过（0 warning / 0 error，851 项断言），发布 DLL 与最终构建一致。完整 --floating-ui-test 首次因测试期间前台窗口变化而未通过焦点断言，重跑 exit 0；未移除或放宽检查。普通启动到达 ready 并持续运行，启动前后现有数据库均 4 条对话、quick_check=ok；旧实例此前已退出，v3 留在桌面运行。git diff --check 通过。
 
 ## 未完成
+- 动效在混合 DPI 多屏、不同任务栏位置、真实鼠标标签拖动、系统动画偏好动态切换和高对比度下的实际观感仍需桌面验收；本轮原生诊断验证当前显示器 HWND/命中/移动及开关策略，不等同真实多屏操作。输入区截图预览按用户要求移除，截图完成状态反馈保留；原界面没有单独删除草稿截图入口，不新增截图删除业务。
 - 全屏/输入折叠在混合 DPI 多屏、系统高对比度及实际鼠标/键盘操作下的桌面观感仍需用户验收；原生专项验证当前显示器实际 HWND、控件状态和生成样例，不截图用户桌面。
 - 截图后切换/新建标签到实际工作区的真实 Codex/Agent 请求仍需用户桌面验收；原生专项使用不同测试目录与注入发送器验证图片及目标，不代表真实服务端到端结果。
 - 数学显示、跨公式鼠标拖选、实际复制粘贴和混合 DPI/高对比度仍需用户桌面验收；公式是原生矢量对象，选中复制得到对应 LaTeX 原文，绘图语法按用户要求保留原文。
@@ -43,6 +49,8 @@
 - 旧 NativeHost 仅剩被 .gitignore 排除的 bin/obj，此前递归清理被工具自动审批拒绝，未执行删除；旧 dist 包保留，不视为当前版本。源码及新包无官网组件。
 
 ## 最近修改文件
+- 紧凑输入区/快捷键：src/ScreenShot.App/FloatingPanelWindow.cs、FloatingPanelConversations.cs、FloatingPanelReadingMode.cs；原生专项/回归：ComposerDiagnostics.cs、StartupDiagnostics.cs、ConversationDiagnostics.cs、ReadingModeDiagnostics.cs、AnimationDiagnostics.cs；README.md、docs/UI_DESIGN.md、PROJECT_STATUS.md 同步。
+- 动效策略/配置：src/ScreenShot.Core/AnimationSettings.cs、PanelAppearance.cs；运行服务：src/ScreenShot.App/AnimationService.cs、UiTransition.cs、App.xaml.cs；组件接入：FloatingPanelWindow.cs、FloatingPanelReadingMode.cs、FloatingPanelConversations.cs、FloatingBallWindow.cs、ToolbarWindow.cs、SettingsWindow.cs；阴影同步/缓存：PanelGeometry.cs、PanelShadowWindow.cs、Native.cs；原生检查：AnimationDiagnostics.cs、StartupDiagnostics.cs、RuntimeDiagnostics.cs；配置回归：tests/ScreenShot.Tests/AppearanceTests.cs；README.md、docs/UI_DESIGN.md、PROJECT_STATUS.md 同步。
 - 全屏/折叠：src/ScreenShot.App/FloatingPanelReadingMode.cs、FloatingPanelWindow.cs、FloatingPanelPlacement.cs、FloatingPanelConversations.cs、PanelResizeController.cs、App.xaml、App.xaml.cs；专项：ReadingModeDiagnostics.cs、StartupDiagnostics.cs；README.md、docs/UI_DESIGN.md、PROJECT_STATUS.md 同步。
 - 最新截图跨对话传递：src/ScreenShot.App/FloatingPanelWindow.cs；原生专项：ConversationDiagnostics.cs、StartupDiagnostics.cs、App.xaml.cs、RuntimeDiagnostics.cs（生成不同测试图）；README.md、docs/UI_DESIGN.md、PROJECT_STATUS.md 同步。
 - 数学解析/显示：src/ScreenShot.Core/MarkdownDocument.cs、src/ScreenShot.App/NativeMathRenderer.cs、MarkdownMessageView.cs、ScreenShot.App.csproj；回归：RuntimeDiagnostics.cs、StartupDiagnostics.cs、App.xaml.cs、tests/ScreenShot.Tests/MarkdownTests.cs；README.md、docs/UI_DESIGN.md、THIRD_PARTY_NOTICES.md、licenses 与 PROJECT_STATUS.md 同步。
@@ -53,6 +61,9 @@
 - 文档：README.md、docs/UI_DESIGN.md、THIRD_PARTY_NOTICES.md、PROJECT_STATUS.md。之前清理的 CodexConversation.cs、Native.cs 修改保留。
 
 ## 已确认设计决策
+- 2026-10-11 用户授权先将此前原生动效系统、独立动效栏目、阴影同步与紧凑输入区/Ctrl+Enter 发送、相关诊断和文档提交到本地 Git，再实现本地存储卡片；不推送远端，发布包/用户数据/日志/密钥不纳入提交。
+- 用户要求只移除输入区红框内的当前截图预览和截取屏幕按钮，保留输入框、发送及模式选择。Ctrl+Enter 是输入区发送快捷键，使用当前所选模式和截图/提示词；Enter 继续换行，不改全局截图快捷键。不扩大输入区改版范围，不增加附件删除业务，截图草稿/跨标签传递/防重发及消息气泡预览保留。参考 Astryx Button 的短标签、tooltip 和可访问快捷键约定及 Microsoft 官方键盘事件顺序，继续使用原生 WinUI，无新增依赖。
+- 原生动效统一在 App 生命周期服务与窗口 scope 中管理，使用 Microsoft.UI.Composition + WinUI Storyboard，未引入 Web/Astryx 依赖或重做控件模板；参考 Astryx AppShell 的导航/标题分工与 Slider 的可访问交互约定，以及 Microsoft 官方 spring 的周期/阻尼建议。弹性进场/反馈使用 spring，退出短缓动以及时释放标签位置；两栏共用 HWND，内部视觉动效不更改真实相对位置。预设/倍率/局部开关仍放 PanelAppearance.Motion，保留旧全局开关；独立动效栏目只保存动效，外观栏目只保存非动效设置，两栏目均保持即时预览、导航草稿与关闭撤销。原生控件保留默认 VisualState / ThemeTransition；诊断 JSON 写入生成样本目录，不写用户 settings.json。
 - 用户要求标签栏右侧小图标进入全屏，工具栏隐藏、标签置顶、内容占满下方；输入区上沿小箭头收起并向下淡出。使用现有无边框 presenter 与当前显示器 Monitor bounds，退出恢复悬浮状态；输入折叠本次面板内共享，各标签数据继续独立，重启默认展开，新截图显式展开输入。参考 Astryx IconButton 无障碍/提示和 emil-design-eng 动效原则，不引入 Web UI 或依赖。2026-10-11 用户授权将本次全屏/输入折叠、透明图标样式及相关诊断/文档提交到本地 Git；发布包、数据库、截图、日志和密钥不纳入提交，不推送远端。
 - 用户要求截图可用于任意工作区，包括截图后新建的对话。最新截图在本次面板生命周期内供所有标签接入；提示词、工作区、发送模式、消息历史、原生 thread 与任务仍按标签隔离。每个目标标签独立持久化截图草稿，同一标签/目标的 Sent/Unknown 防重发保护保留，不自动发送。正在执行的请求保持旧截图快照，空闲后采用最新截图。
 - 用户明确选择“先修复公式与专业符号，绘图语法保留原文”。数学排版采用 CSharpMath.Rendering + 原生 WinUI 矢量适配器，保持连续选择和原文复制；没有把数学作图代码当作可执行输入，不引入 Web UI。新增数学依赖前已说明纯替换专业符号无法正确排版分数/矩阵的限制。
@@ -68,5 +79,6 @@
 - 沿用 .tools/dotnet、scripts/verify.ps1 和 scripts/publish.ps1；未经明确要求不 commit/push。2026-10-09 用户授权将累计的多会话/本地记忆、启动修复、界面调整和历史删除/重命名修复提交到本地 Git；不包含发布包、数据库、截图、日志或密钥，未推送远端。f5e245e 为此前用户授权的本地提交。
 
 ## 后续计划
-- 最新修改发布至 dist/AIScreenShot-win-x64-reading-v2，统一全屏/新建/历史及输入区箭头的透明无描边外观，包含全屏/输入折叠及此前数学排版、截图传递修复；旧实例不强制退出，用户退出旧版后启动新包，验收图标外观、全屏/退出恢复、输入折叠/展开/动效，截图→切换/新建对话→选择目标工作区→发送，以及数学排版、跨段选择与复制图标。继续验收并行/停止/关闭重开/重启恢复、历史重命名/删除、标签溢出/主题色、球与栏对齐及真实服务恢复。
+- 最新包为 dist/AIScreenShot-win-x64-composer-v1，包含 motion-v2；用户退出旧版后验收紧凑输入区、Ctrl+Enter 发送与 Enter 换行。继续在独立“动效设置”栏目验收微小弹性回弹、简约关闭淡出/阴影同步、速度/局部开关、即时预览、独立保存/重启及关闭未保存草稿回退，以及连续显隐、快速关闭/新建/切换/拖动排序、并发模型回复与流式滚动、混合 DPI 拖动、截图及全屏阅读；不强制结束旧实例。
+- 动效包包含此前 reading-v2 的全屏/新建/历史及输入区箭头透明无描边外观、数学排版与截图传递修复；继续验收图标、截图→切换/新建对话→选择目标工作区→真实发送，以及数学排版、跨段选择与复制图标、停止/关闭重开/重启恢复、历史重命名/删除、标签溢出/主题色、球与栏对齐及真实服务恢复。
 - 与用户讨论 Agent 应用场景和工具扩展；暂不增加长期知识库或跨会话共享，先保持基础会话隔离和稳定恢复。

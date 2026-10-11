@@ -7,6 +7,33 @@ internal static class AppearanceTests
     {
         int checks=0;
         void Check(bool value,string message){if(!value)throw new Exception(message);checks++;}
+        var oldMotion=JsonSerializer.Deserialize<Settings>("{\"PanelAppearance\":{\"EnableAnimations\":false,\"Messages\":{\"Material\":2,\"Opacity\":0.35}}}")!.PanelAppearance;
+        Check(oldMotion.Motion.Style==AnimationStyle.Smooth&&!MotionProfile.Resolve(oldMotion,AnimationArea.Panel).Enabled&&oldMotion.Messages.Opacity==0.35,"Old animation opt-out and independent material survive motion migration");
+        var motionAppearance=new PanelAppearance{Motion=new(){Style=AnimationStyle.Elastic,Speed=1.75,Toolbar=false,Tabs=false,Messages=false}};
+        Check(JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(new Settings{PanelAppearance=motionAppearance}))!.PanelAppearance==motionAppearance,"Preset, speed and all area settings survive JSON round trip");
+        Check(new AnimationSettings{Style=(AnimationStyle)999,Speed=double.NaN}.Normalize()==new AnimationSettings(),"Invalid motion enum and nonfinite speed safely restore defaults");
+        Check(new PanelAppearance{Motion=null!}.Normalize().Motion==new AnimationSettings(),"Null motion uses defaults without discarding appearance");
+        Check(new AnimationSettings{Speed=-1}.Normalize().Speed==0.5&&new AnimationSettings{Speed=5}.Normalize().Speed==2,"Motion speed bounded to 50-200 percent");
+        foreach(var style in Enum.GetValues<AnimationStyle>())
+        foreach(var area in Enum.GetValues<AnimationArea>())
+        {
+            var value=new PanelAppearance{Motion=new(){Style=style}};
+            Check(MotionProfile.Resolve(value,area).Enabled==(style!=AnimationStyle.Off),"All presets consistently honor Off");
+            Check(!MotionProfile.Resolve(value,area,false).Enabled&&!MotionProfile.Resolve(value with{EnableAnimations=false},area).Enabled,"System and legacy global opt-out apply in every area");
+        }
+        Check(!MotionProfile.Resolve(motionAppearance,AnimationArea.Toolbar).Enabled&&!MotionProfile.Resolve(motionAppearance,AnimationArea.Tabs).Enabled&&!MotionProfile.Resolve(motionAppearance,AnimationArea.Messages).Enabled&&MotionProfile.Resolve(motionAppearance,AnimationArea.Panel).Enabled,"Independent local switches do not disable another area");
+        var minimal=MotionProfile.Resolve(new PanelAppearance{Motion=new(){Style=AnimationStyle.Minimal}},AnimationArea.Messages);
+        Check(minimal.Distance==0&&minimal.EnterScale==1&&minimal.HoverScale==1&&!minimal.Spring,"Minimal preset has no positional/scale motion");
+        var smooth=MotionProfile.Resolve(new(),AnimationArea.Panel);
+        Check(smooth.Enabled&&smooth.Distance==6&&smooth.EnterScale<1&&!smooth.Spring,"Default smooth policy uses restrained movement");
+        Check(MotionProfile.Resolve(motionAppearance,AnimationArea.Panel).Spring,"Elastic policy selects native springs");
+        var elastic=MotionProfile.Resolve(new PanelAppearance{Motion=new(){Style=AnimationStyle.Elastic}},AnimationArea.Panel);
+        double overshoot=Math.Exp(-Math.PI*elastic.Damping/Math.Sqrt(1-elastic.Damping*elastic.Damping));
+        Check(overshoot>0.04&&overshoot<0.12&&(1-elastic.EnterScale)*overshoot<0.004,"Elastic policy produces a small underdamped scale rebound");
+        Check(elastic.SpringPeriodMs==60&&elastic.TranslationDamping>elastic.Damping&&elastic.SpringPeriodMs<elastic.DurationMs,"Elastic position settles more firmly and uses an independent oscillation period");
+        Check(MotionProfile.Resolve(new PanelAppearance{Motion=new(){Style=AnimationStyle.Elastic,Speed=2}},AnimationArea.Panel).SpringPeriodMs==elastic.SpringPeriodMs/2,"Speed scales spring period along with opacity duration");
+        Check(MotionProfile.Resolve(new PanelAppearance{Motion=new(){Style=AnimationStyle.Lively}},AnimationArea.Panel).Distance>smooth.Distance,"Lively policy increases movement");
+        Check(MotionProfile.Resolve(new PanelAppearance{Motion=new(){Speed=2}},AnimationArea.Panel).DurationMs==smooth.DurationMs/2,"Speed is an inverse duration multiplier");
         var legacy=JsonSerializer.Deserialize<Settings>("{\"Browser\":\"Chrome\",\"DefaultPrompt\":\"保留提示词\",\"HotkeyKey\":65}")!;
         Check(legacy.PanelAppearance==new PanelAppearance(),"Existing settings acquire readable material defaults");
         var configured=new Settings{PanelAppearance=new(){Toolbar=new(SurfaceMaterial.AcrylicThin,0.25),Messages=new(SurfaceMaterial.Acrylic,1)}};

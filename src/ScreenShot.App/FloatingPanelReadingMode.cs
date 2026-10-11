@@ -74,7 +74,7 @@ internal sealed partial class FloatingPanelWindow
     {
         view.InputToggle.Content=UiDesign.Icon(composerCollapsed?"\uE70E":"\uE70D",12);
         Label(view.InputToggle,composerCollapsed?"展开输入区":"收起输入区");
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetHelpText(view.InputToggle,composerCollapsed?"保留截图和提示词草稿，展开后继续发送":"隐藏截图预览、提示词和发送按钮，扩大对话阅读区域");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetHelpText(view.InputToggle,composerCollapsed?"保留截图和提示词草稿，展开后继续发送":"隐藏提示词、发送按钮和模式选择，扩大对话阅读区域");
     }
 
     private void ApplyComposerState(ConversationView view)
@@ -99,9 +99,10 @@ internal sealed partial class FloatingPanelWindow
                 if(ReferenceEquals(node,surface)){view.InputToggle.Focus(FocusState.Programmatic);break;}
         }
         surface.Visibility=Visibility.Visible;view.InputControls.IsEnabled=!collapsed;
-        composerTransition.Start([
+        composerTransition.Start(new UiTransition.Track[]{
             OpacityTrack(surface,collapsed?0:1),
             new(view.InputTranslation,"Y",()=>view.InputTranslation.Y,value=>view.InputTranslation.Y=value,collapsed?20:0)
-        ],animate&&expanded&&!hiddenForOperation&&appearance.EnableAnimations&&visualSettings.AnimationsEnabled,()=>ApplyComposerState(view));
+        }.Select(track=>track with{Animate=appearance.Motion.Style!=ScreenShot.Core.AnimationStyle.Minimal||track.Property=="Opacity"}),
+            animate&&expanded&&!hiddenForOperation,()=>ApplyComposerState(view),app.Animations.Profile(ScreenShot.Core.AnimationArea.Panel));
     }
 }

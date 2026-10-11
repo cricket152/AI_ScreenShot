@@ -82,7 +82,7 @@ public partial class App
             panel.ApplyAppearance(originalAppearance with {EnableAnimations=false});Invoke(panel.ComposerToggleButton);
             if(panel.IsComposerTransitioning||panel.ComposerSurface.Visibility!=Visibility.Collapsed)throw new InvalidOperationException("Disabled motion did not collapse instantly");
             await panel.PresentAsync(image,new(0,0,320,200));
-            if(panel.IsComposerCollapsed||panel.ComposerSurface.Visibility!=Visibility.Visible||!panel.HasScreenshotPreview)throw new InvalidOperationException("New capture did not reveal the preserved input surface");
+            if(panel.IsComposerCollapsed||panel.ComposerSurface.Visibility!=Visibility.Visible||!panel.CurrentImage.SequenceEqual(image))throw new InvalidOperationException("New capture did not reveal the preserved input surface and image");
             Invoke(panel.FullScreenButton);panel.Collapse();await Task.Delay(80);panel.Open();await Task.Delay(80);
             if(panel.IsFullScreen||!Native.IsWindowVisible(panel.Handle))throw new InvalidOperationException("Collapse/reopen left a stuck fullscreen panel");
             panel.SelectConversationForDiagnostic(fixture.Id);

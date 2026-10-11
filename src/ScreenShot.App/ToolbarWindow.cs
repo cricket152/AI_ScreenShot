@@ -13,6 +13,7 @@ namespace ScreenShot.App;
 internal sealed class ToolbarWindow : Window
 {
     private readonly App app;
+    private readonly AnimationScope motion;
     private readonly TextBox prompt=new(){PlaceholderText="输入提示词…",MinWidth=160,Width=260,MaxLength=16000};
     private readonly TextBlock status=new(){Text="截图已就绪",TextWrapping=TextWrapping.Wrap,FontSize=12};
     private readonly SplitButton codex=new(){Content="Codex"};
@@ -27,7 +28,7 @@ internal sealed class ToolbarWindow : Window
     public nint Handle {get;}
     public ToolbarWindow(App app)
     {
-        this.app=app;Title="AI ScreenShot";Handle=WinRT.Interop.WindowNative.GetWindowHandle(this);
+        this.app=app;motion=app.Animations.CreateScope();Title="AI ScreenShot";Handle=WinRT.Interop.WindowNative.GetWindowHandle(this);
         Native.SetWindowLongPtr(Handle,-20,(Native.GetWindowLongPtr(Handle,-20)|0x80)&~0x40000);
         var presenter=OverlappedPresenter.Create();presenter.SetBorderAndTitleBar(false,false);presenter.IsResizable=false;presenter.IsMaximizable=false;presenter.IsMinimizable=false;presenter.IsAlwaysOnTop=true;AppWindow.SetPresenter(presenter);
         var row=new StackPanel{Orientation=Orientation.Horizontal,Spacing=6};
@@ -42,6 +43,7 @@ internal sealed class ToolbarWindow : Window
         var panel=new StackPanel{Spacing=8};panel.Children.Add(row);panel.Children.Add(commands);panel.Children.Add(status);
         var border=(Border)Microsoft.UI.Xaml.Markup.XamlReader.Load("<Border xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" Background=\"{ThemeResource FlyoutBackgroundThemeBrush}\" BorderBrush=\"{ThemeResource FlyoutBorderThemeBrush}\" CornerRadius=\"8\" Padding=\"12\" BorderThickness=\"1\" />");
         border.Child=panel;Content=border;
+        motion.WatchTree(border,AnimationArea.Toolbar);
         border.AddHandler(UIElement.KeyDownEvent,new KeyEventHandler((_,e)=>{if(e.Key==VirtualKey.Escape&&!IsSending){app.EndCaptureSession();e.Handled=true;}}),true);
         close.Click+=(_,_)=>app.EndCaptureSession();retake.Click+=(_,_)=>app.BeginCapture();
         codex.Click+=async(_,_)=>await SendAsync("Codex");agent.Click+=async(_,_)=>await SendAsync("Agent");
@@ -72,7 +74,7 @@ internal sealed class ToolbarWindow : Window
         Add("发送到两端",async()=>{await SendAsync("Agent");string agentResult=status.Text;await SendAsync("Codex",false);status.Text="Agent："+agentResult+"；Codex："+status.Text;});
         Add("复制提示词",async()=>{try{await ClipboardService.TextAsync(EffectivePrompt);status.Text="提示词已复制";}catch(Exception e){status.Text=e.Message;}});
         Add("设置",()=>{app.EndCaptureSession();app.ShowSettings();});more.Flyout=menu;
-        Closed+=(_,_)=>{app.EndCaptureSession();app.Toolbar=null;};
+        Closed+=(_,_)=>{motion.Dispose();app.EndCaptureSession();app.Toolbar=null;};
         app.Themes.Track(this);
     }
     private string EffectivePrompt=>new SendRequest([],prompt.Text,null,app.Settings.DefaultPrompt).EffectivePrompt;
@@ -90,7 +92,7 @@ internal sealed class ToolbarWindow : Window
         int gap=(int)Math.Round(8*scale);
         int y=region.Y+region.Height+gap;if(y+height>info.Work.Bottom)y=region.Y-height-gap;
         y=Math.Clamp(y,info.Work.Top,Math.Max(info.Work.Top,info.Work.Bottom-height));
-        AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(x,y,width,height));Activate();prompt.Focus(FocusState.Programmatic);
+        AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(x,y,width,height));Activate();motion.Enter((FrameworkElement)Content,AnimationArea.Toolbar);prompt.Focus(FocusState.Programmatic);
     }
     private async Task SaveAsync()
     {

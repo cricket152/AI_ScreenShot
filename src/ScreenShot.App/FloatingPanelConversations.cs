@@ -73,18 +73,11 @@ internal sealed partial class FloatingPanelWindow
             }
             view.empty.Visibility=view.Data.Messages.Count==0?Visibility.Visible:Visibility.Collapsed;
             view.png=store?.ReadImage(view.Data.DraftImage)??[];
-            if(view.png.Length>0){view.dimensions.Text="已恢复当前截图";_ = RestoreDraftImageAsync(view);}
             if(view.Data.Messages.Any(m=>m.State=="Unknown"))SetStatus("已恢复对话 · 有未确认的发送，已保留内容，不会自动重发",destination:view);
             else if(view.Data.Messages.Count>0)SetStatus("对话已恢复",destination:view);
             Persist(view);
         }
         finally{current=previous;restoring=false;}
-    }
-    private async Task RestoreDraftImageAsync(ConversationView view)
-    {
-        int version=view.imageVersion;
-        try{var image=await LoadBitmapAsync(view.png,160);if(!closed&&version==view.imageVersion){view.draftImage.Source=image;view.thumbnail.Visibility=Visibility.Visible;}}
-        catch(Exception error) when(error is System.Runtime.InteropServices.COMException or ArgumentException){SetStatus("截图无法解码，文字历史仍可使用",destination:view);}
     }
     private void Persist(ConversationView view)
     {
@@ -118,6 +111,8 @@ internal sealed partial class FloatingPanelWindow
     internal string CurrentConversationId=>current.Data.Id;
     internal string CurrentConversationTitle=>current.Data.Title;
     internal int OpenConversationCount=>conversations.Values.Count(v=>v.Data.IsOpen);
+    internal int RenderedTabCount=>tabs.Children.Count;
+    internal IReadOnlyList<string> RenderedConversationIds=>tabs.Children.OfType<Grid>().Select(row=>tabVisuals.Single(pair=>ReferenceEquals(pair.Value.Row,row)).Key).ToArray();
     internal Workspace? CurrentWorkspace=>current.Data.Workspace;
     internal void SetWorkspaceForDiagnostic(Workspace? value){current.Data.Workspace=value;RefreshWorkspace();}
     internal void SelectConversationForDiagnostic(string id)=>SelectConversation(conversations[id]);
@@ -129,11 +124,14 @@ internal sealed partial class FloatingPanelWindow
     private void SelectConversation(ConversationView view)
     {
         if(closed)return;
+        bool changed=!ReferenceEquals(current,view);
         FinishComposerTransition();ClosePreview();paneMenu.Hide();
         messageHeader?.Children.Remove(paneMenuButton);
         EnsureView(view);current=view;view.Data.IsOpen=true;
         ApplyComposerState(view);
         chatHost.Children.Clear();chatHost.Children.Add(view.Content);
+        motion.WatchTree(view.Content,AnimationArea.Messages);
+        if(changed&&expanded&&!restoring)motion.Enter(view.Content,AnimationArea.Tabs);
         RefreshWorkspace();MovePaneMenu();UpdateButtons();RenderTabs();Persist(view);
         try{store?.Select(view.Data.Id);}catch(IOException){SetStatus("选中标签未能保存，请检查磁盘空间和权限");}
         StartRecovery(view);
@@ -173,31 +171,105 @@ internal sealed partial class FloatingPanelWindow
         }
         else RenderTabs();
     }
+    private sealed record TabVisual(Grid Row,ToggleButton Button,TextBlock Title)
+    {internal bool Exiting;}
+    private readonly Dictionary<string,TabVisual> tabVisuals=[];
+    private Dictionary<Grid,int> TabPositions()=>tabs.Children.OfType<Grid>().Select((row,index)=>(row,index)).ToDictionary(pair=>pair.row,pair=>pair.index);
+    private void AnimateTabLayout(Dictionary<Grid,int> previous)
+    {
+        if(closed)return;
+        tabs.UpdateLayout();
+        var rows=tabs.Children.OfType<Grid>().ToArray();
+        var exiting=tabVisuals.Values.Where(v=>v.Exiting).Select(v=>v.Row).ToHashSet();
+        for(int i=0;i<rows.Length;i++)if(!exiting.Contains(rows[i])&&previous.TryGetValue(rows[i],out int old))motion.Reposition(rows[i],(old-i)*134);
+    }
     private void RenderTabs()
     {
         if(closed)return;
-        tabs.Children.Clear();
+        var previous=TabPositions();
         var open=conversations.Values.Where(v=>v.Data.IsOpen).OrderBy(v=>v.Data.Order).ToArray();
+        foreach(var pair in tabVisuals.ToArray())
+        {
+            if(conversations.TryGetValue(pair.Key,out var view)&&view.Data.IsOpen)continue;
+            var visual=pair.Value;if(visual.Exiting)continue;
+            visual.Exiting=true;visual.Button.IsChecked=false;visual.Row.IsHitTestVisible=false;
+            motion.Exit(visual.Row,AnimationArea.Tabs,()=>
+            {
+                var positions=TabPositions();tabs.Children.Remove(visual.Row);tabVisuals.Remove(pair.Key);
+                if(!closed){RenderTabs();AnimateTabLayout(positions);UpdateTabOverflow();}
+            });
+        }
         for(int i=0;i<open.Length;i++)
         {
-            var view=open[i];int index=i;
+            var view=open[i];
+            if(tabVisuals.TryGetValue(view.Data.Id,out var existing))
+            {
+                if(existing.Exiting){motion.Finish();existing=null;}
+                else
+                {
+                    bool isSelected=ReferenceEquals(view,current),wasSelected=existing.Button.IsChecked==true;
+                    existing.Title.Text=(view.busy?"◌ ":"")+view.Data.Title;existing.Button.IsChecked=isSelected;
+                    Label(existing.Button,view.Data.Title+(view.busy?" · 正在处理":"")+"；右键重命名或关闭");
+                    if(isSelected&&!wasSelected&&expanded)motion.Enter(existing.Title,AnimationArea.Tabs);
+                    if(tabs.Children.IndexOf(existing.Row)!=i&&!tabVisuals.Values.Any(v=>v.Exiting))
+                    {tabs.Children.Remove(existing.Row);tabs.Children.Insert(i,existing.Row);motion.WatchTree(existing.Row,AnimationArea.Tabs);}
+                    continue;
+                }
+            }
             var row=new Grid{Width=132,ColumnSpacing=0};row.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});row.ColumnDefinitions.Add(new(){Width=GridLength.Auto});
-            var tab=new ToggleButton{Content=new TextBlock{Text=(view.busy?"◌ ":"")+view.Data.Title,TextTrimming=TextTrimming.CharacterEllipsis,FontSize=12},IsChecked=ReferenceEquals(view,current),MinHeight=30,Padding=new Thickness(8,4,4,4),CornerRadius=new CornerRadius(8,8,0,0),HorizontalAlignment=HorizontalAlignment.Stretch};
+            var title=new TextBlock{Text=(view.busy?"◌ ":"")+view.Data.Title,TextTrimming=TextTrimming.CharacterEllipsis,FontSize=12};
+            var tab=new ToggleButton{Content=title,IsChecked=ReferenceEquals(view,current),MinHeight=30,Padding=new Thickness(8,4,4,4),CornerRadius=new CornerRadius(8,8,0,0),HorizontalAlignment=HorizontalAlignment.Stretch};
             Label(tab,view.Data.Title+(view.busy?" · 正在处理":"")+"；右键重命名或关闭");
-            tab.Click+=(_,_)=>SelectConversation(view);
-            tab.KeyDown+=(_,e)=>{int next=e.Key switch{VirtualKey.Left=>Math.Max(0,index-1),VirtualKey.Right=>Math.Min(open.Length-1,index+1),VirtualKey.Home=>0,VirtualKey.End=>open.Length-1,_=>-1};if(next>=0){SelectConversation(open[next]);((ToggleButton)((Grid)tabs.Children[next]).Children[0]).Focus(FocusState.Keyboard);e.Handled=true;}};
+            bool suppressClick=false,dragging=false;double? dragStart=null;
+            tab.Click+=(_,_)=>{if(!suppressClick)SelectConversation(view);suppressClick=false;};
+            tab.AddHandler(UIElement.PointerPressedEvent,new PointerEventHandler((_,e)=>
+            {if(e.GetCurrentPoint(tab).Properties.IsLeftButtonPressed){dragStart=e.GetCurrentPoint(tabs).Position.X;dragging=false;tab.CapturePointer(e.Pointer);}}),true);
+            tab.AddHandler(UIElement.PointerMovedEvent,new PointerEventHandler((_,e)=>
+            {
+                if(dragStart is not {} start||!e.GetCurrentPoint(tab).Properties.IsLeftButtonPressed)return;
+                double delta=e.GetCurrentPoint(tabs).Position.X-start;
+                if(Math.Abs(delta)>8){dragging=true;suppressClick=true;motion.Drag(tab,AnimationArea.Tabs,(float)delta);}
+            }),true);
+            tab.AddHandler(UIElement.PointerReleasedEvent,new PointerEventHandler((_,e)=>
+            {
+                double delta=dragStart is {} start?e.GetCurrentPoint(tabs).Position.X-start:0;dragStart=null;
+                if(dragging){MoveConversation(view,(int)Math.Round(delta/134));e.Handled=true;}dragging=false;tab.ReleasePointerCapture(e.Pointer);
+                motion.Feedback(tab,AnimationArea.Tabs,false,false);DispatcherQueue.TryEnqueue(()=>suppressClick=false);
+            }),true);
+            tab.PointerCaptureLost+=(_,_)=>{dragStart=null;dragging=false;motion.Feedback(tab,AnimationArea.Tabs,false,false);};
+            tab.KeyDown+=(_,e)=>
+            {
+                var ordered=conversations.Values.Where(v=>v.Data.IsOpen).OrderBy(v=>v.Data.Order).ToArray();int index=Array.IndexOf(ordered,view);
+                int next=e.Key switch{VirtualKey.Left=>Math.Max(0,index-1),VirtualKey.Right=>Math.Min(ordered.Length-1,index+1),VirtualKey.Home=>0,VirtualKey.End=>ordered.Length-1,_=>-1};
+                if(next>=0){SelectConversation(ordered[next]);tabVisuals[ordered[next].Data.Id].Button.Focus(FocusState.Keyboard);e.Handled=true;}
+            };
             var menu=new MenuFlyout();var rename=new MenuFlyoutItem{Text="重命名"};rename.Click+=async(_,_)=>await RenameConversationAsync(view);menu.Items.Add(rename);var closeItem=new MenuFlyoutItem{Text="关闭标签（保留历史）"};closeItem.Click+=(_,_)=>CloseConversation(view);menu.Items.Add(closeItem);tab.ContextFlyout=menu;
             row.Children.Add(tab);
-            var close=new Button{Content=UiDesign.Icon("\uE711",10),MinWidth=22,MinHeight=30,Padding=new Thickness(3)};UiDesign.Apply(close,"SS.QuietButtonStyle");Label(close,"关闭 "+view.Data.Title+"，保留历史和后台任务");close.Click+=(_,_)=>CloseConversation(view);Grid.SetColumn(close,1);row.Children.Add(close);tabs.Children.Add(row);
+            var close=new Button{Content=UiDesign.Icon("\uE711",10),MinWidth=22,MinHeight=30,Padding=new Thickness(3)};UiDesign.Apply(close,"SS.QuietButtonStyle");Label(close,"关闭 "+view.Data.Title+"，保留历史和后台任务");close.Click+=(_,_)=>CloseConversation(view);Grid.SetColumn(close,1);row.Children.Add(close);tabs.Children.Insert(Math.Min(i,tabs.Children.Count),row);
+            tabVisuals[view.Data.Id]=new(row,tab,title);motion.WatchTree(row,AnimationArea.Tabs);
+            if(expanded)motion.Enter(row,AnimationArea.Tabs);
         }
         int selected=Array.FindIndex(open,v=>ReferenceEquals(v,current));
         if(selected>=0&&visibleTabId!=current.Data.Id)
         {
-            visibleTabId=current.Data.Id;var row=(Grid)tabs.Children[selected];
+            visibleTabId=current.Data.Id;var row=tabVisuals[current.Data.Id].Row;
             DispatcherQueue.TryEnqueue(()=>{if(!closed&&ReferenceEquals(row.Parent,tabs))row.StartBringIntoView(new BringIntoViewOptions{AnimationDesired=false});});
         }
         UpdateTabOverflow();
+        AnimateTabLayout(previous);
     }
+    private void MoveConversation(ConversationView view,int delta)
+    {
+        if(closed||delta==0||!view.Data.IsOpen)return;
+        motion.Finish();
+        var ordered=conversations.Values.Where(v=>v.Data.IsOpen).OrderBy(v=>v.Data.Order).ToList();int index=ordered.IndexOf(view);
+        var slots=ordered.Select(v=>v.Data.Order).ToArray();
+        int target=Math.Clamp(index+delta,0,ordered.Count-1);if(index==target)return;
+        ordered.RemoveAt(index);ordered.Insert(target,view);
+        // Reuse only open-tab slots; closed history retains its position without duplicate order values.
+        for(int i=0;i<ordered.Count;i++){ordered[i].Data.Order=slots[i];Persist(ordered[i]);}RenderTabs();
+    }
+    internal void ReorderCurrentForDiagnostic(int delta)=>MoveConversation(current,delta);
     private void UpdateTabOverflow()
     {
         if(closed||updatingTabOverflow)return;

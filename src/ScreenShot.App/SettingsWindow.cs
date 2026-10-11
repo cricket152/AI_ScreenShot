@@ -11,6 +11,15 @@ namespace ScreenShot.App;
 internal sealed class SettingsWindow : Window
 {
     private readonly App app;
+    private readonly AnimationScope motion;
+    private readonly ComboBox motionStyle=new(){ItemsSource=new[]{"关闭","简约","丝滑","弹性","灵动"}};
+    private readonly Slider motionSpeed=new(){Minimum=50,Maximum=200,StepFrequency=5,SmallChange=5};
+    private readonly ToggleSwitch toolbarMotion=new(){OnContent="开启",OffContent="关闭"},panelMotion=new(){OnContent="开启",OffContent="关闭"},tabMotion=new(){OnContent="开启",OffContent="关闭"},messageMotion=new(){OnContent="开启",OffContent="关闭"};
+    private readonly Border motionPreview=new(){Width=160,Height=44,CornerRadius=new CornerRadius(8),Child=new TextBlock{Text="动效预览",HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center}};
+    internal ComboBox MotionStyleSelector=>motionStyle;
+    internal Slider MotionSpeedSlider=>motionSpeed;
+    internal ToggleSwitch ToolbarMotionToggle=>toolbarMotion;
+    internal AnimationScope MotionScope=>motion;
     private readonly Func<uint,uint,bool> changeHotkey;
     private readonly TextBox agentModel=new(),agentBaseUrl=new();
     private readonly PasswordBox agentApiKey=new(){PlaceholderText="API key（本机免认证可留空）"};
@@ -59,10 +68,11 @@ internal sealed class SettingsWindow : Window
 
     internal SettingsWindow(App app,Func<uint,uint,bool> changeHotkey)
     {
-        this.app=app;this.changeHotkey=changeHotkey;Title="AI ScreenShot 设置";
+        this.app=app;motion=app.Animations.CreateScope();this.changeHotkey=changeHotkey;Title="AI ScreenShot 设置";
         SystemBackdrop=new MicaBackdrop();
         var settings=app.Settings;
         enableAnimations.IsOn=settings.PanelAppearance.EnableAnimations;
+        SetMotion(settings.PanelAppearance.Motion);
         showBorders.IsOn=settings.PanelAppearance.ShowBorders;borderThickness.Value=settings.PanelAppearance.BorderThickness;
         showShadow.IsOn=settings.PanelAppearance.ShowShadow;shadowSpread.Value=settings.PanelAppearance.ShadowSpread;
         shadowOpacity.Value=settings.PanelAppearance.ShadowOpacity*100;accentMix.Value=settings.PanelAppearance.AccentMix*100;
@@ -90,10 +100,11 @@ internal sealed class SettingsWindow : Window
         win=new(){Content="Win",IsChecked=(settings.HotkeyModifiers&8)!=0};
         BuildPages();
         BuildShell();
+        motion.WatchTree((FrameworkElement)Content,AnimationArea.Settings);
         app.Themes.Track(this);app.Themes.Changed+=UpdateAccentPreview;UpdateAccentPreview();
         if(string.IsNullOrEmpty(feedback.Message))SetFeedback(app.Settings.LoadWarning??"设置在点击保存后生效",app.Settings.LoadWarning==null?InfoBarSeverity.Informational:InfoBarSeverity.Warning);
         ResizeToWorkArea();
-        Closed+=(_,_)=>{app.Themes.Changed-=UpdateAccentPreview;app.ApplyAppearance(app.Settings.PanelAppearance);};
+        Closed+=(_,_)=>{motion.Dispose();app.Themes.Changed-=UpdateAccentPreview;app.ApplyAppearance(app.Settings.PanelAppearance);};
     }
 
     private void BuildPages()
@@ -129,14 +140,32 @@ internal sealed class SettingsWindow : Window
         appearance.Children.Add(SettingRow("阴影不透明度","建议使用较低数值，让透明面板保持轻盈。",SliderEditor(shadowOpacity,"%","阴影不透明度")));
         appearance.Children.Add(SettingRow("材质主题色混入","统一混入工具栏和消息背景；0% 保持中性色，100% 使用主题色。正文和按钮不随之变淡。",SliderEditor(accentMix,"%","材质主题色混入比例")));
         appearance.Children.Add(Body("显示窗口后方当前可见的桌面画面。失去焦点时仍保持材质效果；文字、截图和按钮保持清晰。"));
-        appearance.Children.Add(SettingRow("界面过渡动画","用于工具栏缩小/扩展、两栏显隐和悬浮球展开；同时遵循 Windows 动画开关。",enableAnimations));
+        var motionPage=Page("motion","动效设置","选择原生动效风格、速度与局部反馈；调整后即时预览。","\uE768");
+        motionPage.Children.Add(SettingRow("全局动效","同时遵循 Windows 动画开关；关闭后所有非必要过渡立即完成。",enableAnimations));
+        motionPage.Children.Add(SettingRow("动效风格","简约以淡入淡出为主；丝滑轻微位移；弹性柔和回弹；灵动加强反馈。",motionStyle));
+        motionPage.Children.Add(SettingRow("动效速度","50% 较慢，100% 标准，200% 较快。",SliderEditor(motionSpeed,"%","动效速度倍率")));
+        motionPage.Children.Add(SettingRow("工具栏动效","显隐、展开和按钮反馈。",toolbarMotion));
+        motionPage.Children.Add(SettingRow("消息面板动效","面板显隐及输入区展开收起。",panelMotion));
+        motionPage.Children.Add(SettingRow("标签动效","新建、关闭、切换及拖动排序。",tabMotion));
+        motionPage.Children.Add(SettingRow("消息交互动效","新消息、截图缩略图和截图完成反馈。",messageMotion));
+        UiDesign.Apply(motionPreview,"SS.ComposerSurfaceStyle");
+        var replay=ActionButton("播放预览","\uE768");replay.Click+=(_,_)=>motion.Enter(motionPreview,AnimationArea.Settings);
+        var previewRow=new StackPanel{Spacing=8};previewRow.Children.Add(motionPreview);previewRow.Children.Add(replay);
+        motionPage.Children.Add(SettingRow("动效预览","调整风格或速度即刻播放；Windows 关闭动画时显示静态预览。",previewRow));
+        var resetMotion=ActionButton("恢复默认动效","\uE777");
+        resetMotion.Click+=(_,_)=>{enableAnimations.IsOn=true;SetMotion(new());PreviewMotion();SetFeedback("已恢复默认动效预览，点击保存动效后保留。");};
+        motionPage.Children.Add(resetMotion);
         AddSurfaceEditor(appearance,"toolbar","工具条","轻透的胶囊表面，操作按钮保留原生反馈。",app.Settings.PanelAppearance.Toolbar);
         AddSurfaceEditor(appearance,"messages","消息面板","建议保留较高底色，减少后方内容对阅读的干扰。",app.Settings.PanelAppearance.Messages);
         void PreviewAppearance()
         {borderThickness.IsEnabled=showBorders.IsOn;borderThicknessLabel.Text=$"{borderThickness.Value:0.#} px";shadowSpread.IsEnabled=shadowOpacity.IsEnabled=showShadow.IsOn;UpdateAccentPreview();app.ApplyAppearance(ReadAppearance());}
         appTheme.SelectionChanged+=(_,_)=>PreviewAppearance();accentMode.SelectionChanged+=(_,_)=>PreviewAppearance();
         accentPicker.ColorChanged+=(_,_)=>PreviewAppearance();
-        enableAnimations.Toggled+=(_,_)=>PreviewAppearance();PreviewAppearance();
+        PreviewAppearance();
+        void PreviewMotion(){PreviewAppearance();motion.Enter(motionPreview,AnimationArea.Settings);}
+        enableAnimations.Toggled+=(_,_)=>PreviewMotion();
+        motionStyle.SelectionChanged+=(_,_)=>PreviewMotion();motionSpeed.ValueChanged+=(_,_)=>PreviewMotion();
+        foreach(var toggle in new[]{toolbarMotion,panelMotion,tabMotion,messageMotion})toggle.Toggled+=(_,_)=>PreviewMotion();
         showBorders.Toggled+=(_,_)=>PreviewAppearance();borderThickness.ValueChanged+=(_,_)=>PreviewAppearance();
         showShadow.Toggled+=(_,_)=>PreviewAppearance();foreach(var slider in new[]{shadowSpread,shadowOpacity,accentMix})slider.ValueChanged+=(_,_)=>PreviewAppearance();
         var actions=new StackPanel{Orientation=Orientation.Horizontal,Spacing=UiDesign.Number("SS.Spacing.S")};
@@ -151,7 +180,6 @@ internal sealed class SettingsWindow : Window
         {
             var defaults=new PanelAppearance();
             surfaceEditors["toolbar"].Set(defaults.Toolbar);surfaceEditors["messages"].Set(defaults.Messages);
-            enableAnimations.IsOn=defaults.EnableAnimations;
             showBorders.IsOn=defaults.ShowBorders;borderThickness.Value=defaults.BorderThickness;
             showShadow.IsOn=defaults.ShowShadow;shadowSpread.Value=defaults.ShadowSpread;shadowOpacity.Value=defaults.ShadowOpacity*100;accentMix.Value=defaults.AccentMix*100;
             appTheme.SelectedIndex=Array.IndexOf(ThemeChoices,defaults.Theme);accentMode.SelectedIndex=(int)defaults.AccentMode;accentPicker.Color=AppThemeController.ParseColor(defaults.CustomAccentColor);
@@ -229,8 +257,10 @@ internal sealed class SettingsWindow : Window
             {
                 pageTitle.Text=page.Title;pageDescription.Text=page.Description;
                 if(saveButton!=null)
-                {string label=tag=="appearance"?"保存外观":tag=="agent"?"保存 Agent":"保存设置";saveButton.Content=ActionContent(label,"\uE74E");UiDesign.Label(saveButton,label);}
+                {string label=tag=="appearance"?"保存外观":tag=="motion"?"保存动效":tag=="agent"?"保存 Agent":"保存设置";saveButton.Content=ActionContent(label,"\uE74E");UiDesign.Label(saveButton,label);}
                 pageScroller.Content=page.Content;pageScroller.ChangeView(null,0,null,true);
+                motion.WatchTree(page.Content,AnimationArea.Settings);
+                if(navigation.IsLoaded)motion.Enter(page.Content,AnimationArea.Settings);
                 if(navigation.IsLoaded&&navigation.DisplayMode==NavigationViewDisplayMode.Minimal)navigation.IsPaneOpen=false;
             }
         };
@@ -248,7 +278,7 @@ internal sealed class SettingsWindow : Window
         footer.RowDefinitions.Add(new(){Height=GridLength.Auto});footer.RowDefinitions.Add(new(){Height=GridLength.Auto});
         footer.Children.Add(feedback);
         var save=ActionButton("保存设置","\uE74E");saveButton=save;UiDesign.Apply(save,"SS.PrimaryButtonStyle");save.HorizontalAlignment=HorizontalAlignment.Right;
-        save.Click+=(_,_)=>{if(navigation.SelectedItem is NavigationViewItem{Tag:"appearance"})SaveAppearance();else if(navigation.SelectedItem is NavigationViewItem{Tag:"agent"})SaveAgent();else SaveSettings();};Grid.SetRow(save,1);footer.Children.Add(save);
+        save.Click+=(_,_)=>{if(navigation.SelectedItem is NavigationViewItem{Tag:"appearance"})SaveAppearance();else if(navigation.SelectedItem is NavigationViewItem{Tag:"motion"})SaveAppearance(onlyMotion:true);else if(navigation.SelectedItem is NavigationViewItem{Tag:"agent"})SaveAgent();else SaveSettings();};Grid.SetRow(save,1);footer.Children.Add(save);
         Grid.SetRow(footer,2);content.Children.Add(footer);navigation.Content=content;
 
         var root=new Border{RequestedTheme=ElementTheme.Default,Child=navigation};UiDesign.Apply(root,"SS.WindowSurfaceStyle");Content=root;
@@ -313,9 +343,17 @@ internal sealed class SettingsWindow : Window
     private PanelAppearance ReadAppearance()=>new()
     {Toolbar=surfaceEditors["toolbar"].Value,Messages=surfaceEditors["messages"].Value,
         EnableAnimations=enableAnimations.IsOn,
+        Motion=new(){Style=(AnimationStyle)Math.Max(0,motionStyle.SelectedIndex),Speed=motionSpeed.Value/100,Toolbar=toolbarMotion.IsOn,Panel=panelMotion.IsOn,Tabs=tabMotion.IsOn,Messages=messageMotion.IsOn},
         Theme=ThemeChoices[Math.Clamp(appTheme.SelectedIndex,0,ThemeChoices.Length-1)],AccentMode=(AccentColorMode)Math.Max(0,accentMode.SelectedIndex),CustomAccentColor=AppThemeController.ToHex(accentPicker.Color),ShowBorders=showBorders.IsOn,BorderThickness=borderThickness.Value,
         ShowShadow=showShadow.IsOn,ShadowSpread=shadowSpread.Value,ShadowOpacity=shadowOpacity.Value/100,AccentMix=accentMix.Value/100};
 
+    private void SetMotion(AnimationSettings value)
+    {
+        value=value.Normalize();motionStyle.SelectedIndex=(int)value.Style;motionSpeed.Value=value.Speed*100;
+        toolbarMotion.IsOn=value.Toolbar;panelMotion.IsOn=value.Panel;tabMotion.IsOn=value.Tabs;messageMotion.IsOn=value.Messages;
+    }
+    private static TextBlock StyledSection(string text)
+    {var block=new TextBlock{Text=text};UiDesign.Apply(block,"SS.SectionTextStyle");return block;}
     private static Grid SliderEditor(Slider slider,string unit,string label)
     {
         UiDesign.Label(slider,label);var value=new TextBlock{MinWidth=48,TextAlignment=TextAlignment.Right,VerticalAlignment=VerticalAlignment.Center,Text=$"{slider.Value:0}{unit}"};UiDesign.Apply(value,"SS.CaptionTextStyle");
@@ -333,16 +371,23 @@ internal sealed class SettingsWindow : Window
         ToolTipService.SetToolTip(accentButton,custom?"选择自定义主题颜色":"当前 Windows 主题颜色；选择自定义颜色后可编辑");
     }
 
-    private void SaveAppearance()
+    private void SaveAppearance(bool onlyMotion=false)
     {
         var previous=app.Settings.PanelAppearance;
         try
         {
-            app.Settings.PanelAppearance=ReadAppearance();app.Settings.Save();
-            app.ApplyAppearance(app.Settings.PanelAppearance);SetFeedback("外观已保存",InfoBarSeverity.Success);
+            var draft=ReadAppearance();
+            app.Settings.PanelAppearance=AppearanceToSave(onlyMotion);
+            app.Settings.Save();
+            app.ApplyAppearance(draft);SetFeedback(onlyMotion?"动效已保存":"外观已保存",InfoBarSeverity.Success);
         }
         catch(Exception error) when(error is IOException or UnauthorizedAccessException)
-        {app.Settings.PanelAppearance=previous;SetFeedback("保存外观失败："+error.Message,InfoBarSeverity.Error);}
+        {app.Settings.PanelAppearance=previous;SetFeedback((onlyMotion?"保存动效失败：":"保存外观失败：")+error.Message,InfoBarSeverity.Error);}
+    }
+    internal PanelAppearance AppearanceToSave(bool onlyMotion)
+    {
+        var saved=app.Settings.PanelAppearance;var draft=ReadAppearance();
+        return onlyMotion?saved with{EnableAnimations=draft.EnableAnimations,Motion=draft.Motion}:draft with{EnableAnimations=saved.EnableAnimations,Motion=saved.Motion};
     }
 
     private sealed class SurfaceEditor

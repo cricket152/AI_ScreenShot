@@ -1,5 +1,23 @@
 # 原生 UI 设计
 
+## 可配置原生动效（2026-10-11）
+
+`AnimationSettings` / `MotionProfile` 保存五种风格、50%–200% 速度与工具栏/面板/标签/消息四个开关，放在现有 `PanelAppearance.Motion`；保留旧 `EnableAnimations` 全局开关。旧 JSON 默认丝滑，旧关闭选择仍关闭；非法枚举、null、非有限/越界倍率分别规范化，主题、材质和业务设置不变。标准时长：按钮反馈 100ms，标签/消息 160ms，面板/设置 180ms；除以速度倍率。简约只淡化，丝滑轻微缩放/位移，灵动幅度稍大；弹性由原生 spring 的周期/阻尼控制，自然收敛时间可能长于淡化时长。
+
+`App.AnimationService` 统一读取 `UISettings.AnimationsEnabled`，配置或系统偏好变化立即收尾；每个窗口的 `AnimationScope` 管理 Composition batch、事件和控件绑定，完成、卸载、关闭时释放，异常直接写入最终视觉状态，不记录截图/提示词。使用 [WinUI 与 Composition 互操作](https://learn.microsoft.com/en-us/windows/apps/develop/composition/xaml-comp-interop)获取元素 Visual，动画只改 Opacity / Scale / Translation；弹性使用 [SpringVector3NaturalMotionAnimation](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.composition.springvector3naturalmotionanimation)。替换动画停止旧 batch，保留当前显示值，新动画继续朝新目标运行；旧完成回调不覆盖新状态。
+
+两栏共用一个透明 HWND，独立 HWND 仅有悬浮球和外部阴影。保留现有 `UiTransition` 的有限 Height / Width / RowSpacing 布局轨道以协调展开和补位，使用统一速度和局部开关；简约/关闭不逐帧更改布局。真实 HWND 大小只在过渡准备和完成时提交；移动、DPI、边界、全屏、输入区焦点、滚动及命中区域沿用既有管理。Composition 缩放/位移应用在内部内容，不移动两栏的实际边界。截图操作立即收尾并隐藏；窗口关闭不会留下迟到的重开回调。
+
+简约入场先提交完整布局并以零透明度准备阴影蒙版，再显示两个 HWND；退场保留当前布局至淡出完成，随后提交隐藏/收起，快速反向继续使用当前透明度。两栏内部 Composition 不再重复淡化，外层 Storyboard 提供正文与阴影共同的透明度进度。仅在过渡期间订阅 `CompositionTarget.Rendering` 同步阴影，完成/中断/关闭解绑；共同淡化使用缓存蒙版与持久 GDI 缓冲区，只更新 `SourceConstantAlpha`，alpha 更新使用空位置/尺寸参数，实际位置变化才 `SetWindowPos`。单栏过渡保持独立透明度蒙版。阴影 Win32 失败记录 fallback 并隐藏阴影，正文过渡继续。
+
+弹性参考 [Microsoft 的原生弹簧建议](https://learn.microsoft.com/en-us/windows/apps/develop/composition/spring-animations)：Scale 阻尼 0.62、Translation 阻尼 0.67，单次振荡周期 60ms（按钮反馈 50ms），周期随速度倍率缩放，与淡化时长分开；约 8% 的相对缩放超调叠加 3% 入场缩放差，绝对缩放超调约 0.25%，形成微小回弹。退出仍使用短缓动，避免等待 spring 尾段后才释放布局；无新增依赖或复制开源实现。
+
+标签复用原生控件；新建进场、关闭渐隐后移除、相邻标签一次布局后用 Translation 平滑补位；后台状态只改标题/忙碌标记，不重复进场。退出使用短缓动，避免 spring 收敛尾段留下不可见空位。按住标签水平拖动，轻微位移反馈，松开后保存顺序；方向键/Home/End、点击、关闭及历史恢复继续按会话 ID 工作。新消息仅在 `AddBubble` 首次添加时进入，后台/恢复历史不逐条播放，流式文本不触发动效。输入区截图预览按用户要求移除，截图完成状态保留短反馈；原界面没有单独删除草稿截图入口，本次不增加该业务操作。
+
+“动效设置”为独立 NavigationView 栏目，右侧有标题、说明、SettingRow 卡片、ComboBox、Slider、ToggleSwitch、实际预览及“保存动效”；“外观与材质”保留原材质/颜色/边框编辑。参考 Astryx AppShell 的导航与内容标题分工，以及 Slider 的可访问标签、单位、键盘调节与即时预览约定；保留原生 VisualState / ThemeTransition，未引入 Astryx 或 Web 依赖。切换栏目保留草稿；动效与外观分别保存和恢复默认，保存一个栏目不会持久化另一个栏目的草稿，关闭回退到各自最后保存值。现有 JSON 的 PanelAppearance.Motion / EnableAnimations 结构保持兼容。
+
+`--startup-test --animation-test` 使用生成 PNG、专用诊断 SQLite 与注入发送器，验证预设、开关、取消、弹簧 batch、标签复用/排序/关闭持久化、草稿隔离、流式不重复进入、后台完成、截图替换、快速反向、设置预览/切换/关闭回退及资源释放。Composition 完成以实际回调为准，有 3s 诊断超时；测试报告和生成样本在包内 diagnostics，未读取用户历史/桌面/剪贴板或请求真实模型。真实混合 DPI、多屏鼠标拖动、系统高对比度及实际观感仍需桌面验收；回调耗时不是帧率基准。
+
 本项目参考 [DeskBox SettingsWindow](https://github.com/Tianyu199509/DeskBox/blob/main/src/DeskBox/Views/SettingsWindow.xaml)、[设置样式](https://github.com/Tianyu199509/DeskBox/blob/main/src/DeskBox/Styles/SettingsOverviewResources.xaml)和 [WidgetShell](https://github.com/Tianyu199509/DeskBox/blob/main/src/DeskBox/Controls/WidgetShell.xaml) 的分类导航、设置行和胶囊布局，独立实现 UI；未复制源码、图标或其他资源。Astryx 仅用于参考单一主操作、设置项说明及无障碍约定。
 
 ## Design Token
@@ -31,11 +49,13 @@
 
 ## 布局与材质
 
-- 设置窗口使用原生 `NavigationView`，分类为常规与快捷键、外观与材质、Codex、Agent、关于。各页编辑控件缓存于窗口中，切换分类保留未保存输入。每行只有一层卡片：标题和说明在左、控件在右；窄内容宽度时上下排列。修饰键使用原生 CheckBox 的两列布局。
+- 设置窗口使用原生 `NavigationView`，分类为常规与快捷键、外观与材质、动效设置、Codex、Agent、关于。各页编辑控件缓存于窗口中，切换分类保留未保存输入。每行只有一层卡片：标题和说明在左、控件在右；窄内容宽度时上下排列。修饰键使用原生 CheckBox 的两列布局。
 - 设置窗口仍使用 Mica；悬浮宿主始终透明且没有底板，工具条和消息面板各放置一个原生 `SystemBackdropElement`，使用独立控制器和圆角。Acrylic 由 DWM 合成窗口后方当前可见的画面，随着后方窗口变化，不使用壁纸采样、桌面截图或轮询目标窗口。
 - 悬浮入口 HWND 仍为 52 逻辑像素；48px 按钮留出微缩放空间，原有拖动、贴边与点击回调保留。系统禁用动画时不运行缩放过渡。
 - 工具条继续横向排列，五个动作使用相同尺寸和图标规则；最小 420px 面板内等宽缩小。单一下拉菜单支持两栏显隐及工具条缩小/扩展：缩小后仅 Codex / Agent 和菜单箭头，目标宽度约 202 逻辑像素；消息面板宽度保留。仅小工具条可见时 HWND 同步收窄，移动/高度缩放保留，扩展恢复原宽度。正常双栏仍共享宽度；原生窗口非客户区按实际 client rect 计算，避免双栏边缘错位。
-- 截图预览、提示词和发送按钮放在同一输入 Surface。流式消息区区分尚未落地的程序滚动与用户交互；用户滚轮、拖动和导航键会使当前自动跟随失效，回到底部后恢复跟随。
+- 输入 Surface 仅保留提示词、发送按钮和模式选择，移除当前截图缩略图/尺寸与“截取屏幕”按钮，直接释放整行高度。截图仍保存在各标签草稿及最新截图快照中，发送后继续显示消息气泡图片；截图入口沿用全局快捷键与空对话按钮。
+- 默认 `Ctrl+Enter` 在输入区内发送当前截图与提示词，普通 `Enter` 保留多行换行。依据 [WinUI 键盘事件顺序](https://learn.microsoft.com/en-us/windows/apps/develop/input/keyboard-accelerators)，使用输入容器的 `PreviewKeyDown` 在 TextBox 内建处理前拦截准确的 Control+Enter；设置 UIA AcceleratorKey 与提示文字。按钮与按键走同一个发送入口，检查当前标签、显隐/折叠、忙碌及防重发状态。作用域包括折叠箭头，避免禁用输入框后的焦点迁移使连续 Ctrl+Enter 错误收起输入区；不成为全局热键。
+- 流式消息区区分尚未落地的程序滚动与用户交互；用户滚轮、拖动和导航键会使当前自动跟随失效，回到底部后恢复跟随。
 
 材质实现遵循 [Windows App SDK 系统材质文档](https://learn.microsoft.com/en-us/windows/apps/develop/ui/system-backdrops)，使用原生 `SystemBackdrop`，不引入 Web UI、CommunityToolkit 或新生产依赖。
 

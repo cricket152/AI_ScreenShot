@@ -18,12 +18,13 @@ public partial class App : Application
     private bool ballWanted=true;
     internal Settings Settings {get;}=Settings.Load();
     internal AppThemeController Themes {get;}
+    internal AnimationService Animations {get;}
     internal AgentClient Agent {get;}
     internal CodexTarget Codex {get;private set;}=null!;
     public App()
     {
         Native.SetCurrentProcessExplicitAppUserModelID("AIScreenShot.Desktop");InitializeComponent();
-        Themes=new(Settings.PanelAppearance);Agent=new(()=>Settings.Agent);
+        Themes=new(Settings.PanelAppearance);Animations=new(Settings.PanelAppearance);Agent=new(()=>Settings.Agent);
         UnhandledException+=(_,e)=>
         {
             StartupDiagnostics.Record(StartupDiagnostics.Stage,e.Exception);
@@ -38,7 +39,7 @@ public partial class App : Application
             if(tray==null&&!arguments.Any(a=>a.EndsWith("-test",StringComparison.Ordinal))){Environment.ExitCode=1;Exit();}
         };
     }
-    internal void ApplyAppearance(PanelAppearance appearance){Themes.Apply(appearance);Panel?.ApplyAppearance(appearance);}
+    internal void ApplyAppearance(PanelAppearance appearance){Animations.Apply(appearance);Themes.Apply(appearance);Panel?.ApplyAppearance(appearance);}
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         bool overlayTest=Environment.GetCommandLineArgs().Contains("--overlay-test");
@@ -761,7 +762,7 @@ public partial class App : Application
         settingsWindow=new SettingsWindow(this,(modifiers,key)=>tray?.ChangeHotkey(modifiers,key)==true);
         settingsWindow.Closed+=(_,_)=>settingsWindow=null;settingsWindow.Activate();
     }
-    private void Shutdown(){ballWanted=false;EndCaptureSession();Panel?.Close();Ball?.Close();Themes.Dispose();Codex?.Dispose();ClipboardService.ReleaseRetained();Agent.Dispose();tray?.Dispose();instance?.ReleaseMutex();instance?.Dispose();Exit();}
+    private void Shutdown(){ballWanted=false;EndCaptureSession();Panel?.Close();Ball?.Close();Animations.Dispose();Themes.Dispose();Codex?.Dispose();ClipboardService.ReleaseRetained();Agent.Dispose();tray?.Dispose();instance?.ReleaseMutex();instance?.Dispose();Exit();}
     private async void RunSmokeTest()
     {
         string output=Path.Combine(AppContext.BaseDirectory,"diagnostics");Directory.CreateDirectory(output);

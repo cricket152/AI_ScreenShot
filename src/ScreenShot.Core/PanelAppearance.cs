@@ -17,6 +17,7 @@ public sealed record PanelAppearance
     public AccentColorMode AccentMode {get;init;}=AccentColorMode.System;
     public string CustomAccentColor {get;init;}=DefaultCustomAccent;
     public bool EnableAnimations {get;init;}=true;
+    public AnimationSettings Motion {get;init;}=new();
     public bool ShowBorders {get;init;}=true;
     public double BorderThickness {get;init;}=1;
     public double AccentMix {get;init;}=0.18;
@@ -32,6 +33,7 @@ public sealed record PanelAppearance
         AccentMode=Enum.IsDefined(AccentMode)?AccentMode:AccentColorMode.System,
         CustomAccentColor=NormalizeAccentColor(CustomAccentColor),
         EnableAnimations=EnableAnimations,
+        Motion=(Motion??new()).Normalize(),
         ShowBorders=ShowBorders,BorderThickness=double.IsFinite(BorderThickness)?Math.Clamp(BorderThickness,0.5,3):1,
         AccentMix=double.IsFinite(AccentMix)?Math.Clamp(AccentMix,0,1):0.18,
         ShowShadow=ShowShadow,ShadowSpread=double.IsFinite(ShadowSpread)?Math.Clamp(ShadowSpread,0,32):12,

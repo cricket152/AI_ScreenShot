@@ -14,7 +14,7 @@ internal sealed class PanelGeometry(nint handle,FrameworkElement root,params Bor
         if(root.ActualWidth<=0||!Native.GetWindowRect(handle,out var window))return;
         var origin=new Native.Point();if(!Native.ClientToScreen(handle,ref origin))return;
         double scale=Math.Max(96u,Native.GetDpiForWindow(handle))/96d;
-        Shapes=panes.Where(pane=>pane.Visibility==Visibility.Visible&&pane.ActualWidth>0&&pane.ActualHeight>0&&pane.Opacity>0)
+        Shapes=panes.Where(pane=>pane.Visibility==Visibility.Visible&&pane.ActualWidth>0&&pane.ActualHeight>0)
             .Select(pane=>
             {
                 var position=pane.TransformToVisual(root).TransformPoint(new Windows.Foundation.Point());

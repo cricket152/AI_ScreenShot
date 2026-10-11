@@ -53,7 +53,9 @@ public partial class App
             if(Environment.GetCommandLineArgs().Contains("--message-selection-test"))appearanceChecks+=await RuntimeDiagnostics.VerifyMessageSelectionAsync(Panel,output);
             if(Environment.GetCommandLineArgs().Contains("--math-render-test"))appearanceChecks+=await RuntimeDiagnostics.VerifyMathRenderingAsync(output);
             if(Environment.GetCommandLineArgs().Contains("--capture-routing-test"))appearanceChecks+=await VerifyCaptureRoutingAsync(output);
+            if(Environment.GetCommandLineArgs().Contains("--composer-test"))appearanceChecks+=await VerifyComposerAsync(output);
             if(Environment.GetCommandLineArgs().Contains("--reading-mode-test"))appearanceChecks+=await VerifyReadingModeAsync(output);
+            if(Environment.GetCommandLineArgs().Contains("--animation-test"))appearanceChecks+=await VerifyAnimationsAsync(output);
             if(closedFixture!=null)appearanceChecks+=await RuntimeDiagnostics.VerifyConversationHistoryAsync(Panel,storage,closedFixture,output);
             if(StartupDiagnostics.ErrorCount!=0)throw new InvalidOperationException("Unhandled exception during cold startup");
             Panel.Close();Panel=null;

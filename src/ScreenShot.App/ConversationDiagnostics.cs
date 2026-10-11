@@ -37,7 +37,7 @@ public partial class App
         }
         void VerifyImage(byte[] expected)
         {
-            if(!panel!.CurrentImage.SequenceEqual(expected)||!panel.HasScreenshotPreview)throw new InvalidOperationException("Selected conversation lost the latest capture or its thumbnail");
+            if(!panel!.CurrentImage.SequenceEqual(expected))throw new InvalidOperationException("Selected conversation lost the latest capture");
         }
         try
         {
@@ -95,7 +95,7 @@ public partial class App
             panel.Close();panel=new FloatingPanelWindow(this,sendCodex:Codex,sendAgent:Agent);Panel=panel;
             await panel.PresentAsync(firstImage,new(0,0,320,200));panel.NewConversation();VerifyImage(firstImage);
             if(!panel.CanSendFromComposer)throw new InvalidOperationException("In-memory conversation adoption requires available storage");
-            string result="PASS: latest screenshot and native thumbnail follow existing/new/reopened conversation tabs with their own workspaces, modes and prompt drafts; native Send Invoke delivers exact image and destination\nPASS: per-tab/target Sent and Unknown locks survive switching; Failed remains retryable; active workers keep snapshots, later adopt the newer capture and retain historical images\nPASS: canceled/stale decodes, switching during decode, persisted draft restoration and storage-free new tabs retain correct capture state\nNo user history, clipboard, desktop capture or real model request was used.\n";
+            string result="PASS: latest screenshot follows existing/new/reopened conversation tabs with their own workspaces, modes and prompt drafts after removing the composer preview; native Send Invoke delivers exact image and destination\nPASS: per-tab/target Sent and Unknown locks survive switching; Failed remains retryable; active workers keep snapshots, later adopt the newer capture and retain historical images\nPASS: canceled/stale decodes, switching during decode, persisted draft restoration and storage-free new tabs retain correct capture state\nNo user history, clipboard, desktop capture or real model request was used.\n";
             await File.WriteAllTextAsync(Path.Combine(output,"capture-routing-test.txt"),result);return result;
         }
         finally

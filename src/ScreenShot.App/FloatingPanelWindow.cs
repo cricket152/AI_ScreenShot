@@ -7,7 +7,6 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using ScreenShot.Core;
-using Windows.UI.ViewManagement;
 using Windows.Storage;
 using Windows.Storage.Pickers;
 using Windows.Storage.Streams;
@@ -17,7 +16,7 @@ namespace ScreenShot.App;
 
 internal sealed partial class FloatingPanelWindow : Window
 {
-    private sealed record CaptureDraft(byte[] Png,BitmapImage Preview,PixelRect Region);
+    private sealed record CaptureDraft(byte[] Png);
     private CaptureDraft? latestCapture;
     private int captureVersion;
     private sealed class ConversationView(Conversation data)
@@ -32,17 +31,13 @@ internal sealed partial class FloatingPanelWindow : Window
         internal readonly Dictionary<string,TextBlock> MessageHeadings=[];
         internal readonly Button send=new(){MinWidth=76,VerticalAlignment=VerticalAlignment.Bottom};
         internal readonly ComboBox composerMode=new(){ItemsSource=new[]{"Codex","Agent"},SelectedIndex=0,Width=96,MinHeight=28,Height=28,FontSize=12,Padding=new Thickness(8,0,6,0)};
-        internal readonly Button capture=new(){HorizontalAlignment=HorizontalAlignment.Left};
         internal readonly DropDownButton workspace=new(){Content="选择工作区",MaxWidth=204,VerticalAlignment=VerticalAlignment.Center};
         internal readonly TextBox prompt=new(){PlaceholderText="输入提示词；有截图时可留空使用默认提示词",AcceptsReturn=true,TextWrapping=TextWrapping.Wrap,MinHeight=64,MaxHeight=100,MaxLength=16000};
         internal readonly TextBlock status=new(){Text="就绪 · 输入提示词或截取屏幕"};
-        internal readonly TextBlock dimensions=new(){Text="还没有截图",VerticalAlignment=VerticalAlignment.Center,TextTrimming=TextTrimming.CharacterEllipsis};
         internal readonly ProgressRing progress=new(){Width=16,Height=16,IsActive=false,Visibility=Visibility.Collapsed};
         internal readonly Button stopWaiting=new(){Content="停止等待",Visibility=Visibility.Collapsed};
         internal readonly StackPanel messages=new(){Spacing=UiDesign.Number("SS.Spacing.M")};
         internal readonly ScrollViewer scroll=new(){VerticalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled};
-        internal readonly Button thumbnail=new(){Padding=new Thickness(0),HorizontalAlignment=HorizontalAlignment.Left,Visibility=Visibility.Collapsed};
-        internal readonly Image draftImage=new(){Width=64,Height=40,Stretch=Stretch.Uniform};
         internal readonly StackPanel empty=new(){Spacing=UiDesign.Number("SS.Spacing.M"),HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center};
         internal readonly HashSet<string> submittedTargets=[];
         internal readonly HashSet<(string Target,string Prompt)> submittedTextPrompts=[];
@@ -52,7 +47,6 @@ internal sealed partial class FloatingPanelWindow : Window
         internal TextBlock? latestResponseModel=null;
         internal byte[] png=[];
         internal CaptureDraft? Capture;
-        internal int imageVersion=0;
         internal int operationVersion=0;
         internal bool busy=false;
         internal int TitleVersion;
@@ -87,17 +81,13 @@ internal sealed partial class FloatingPanelWindow : Window
     private readonly Button paneMenuButton=new(){Content=UiDesign.Icon("\uE70D")};
     private readonly MenuFlyout paneMenu=new();
     private readonly MenuFlyoutItem toolbarVisibilityItem=new(),messageVisibilityItem=new(),toolbarSizeItem=new();
-    private Button capture=>current.capture;
     private DropDownButton workspace=>current.workspace;
     private TextBox prompt=>current.prompt;
     private TextBlock status=>current.status;
-    private TextBlock dimensions=>current.dimensions;
     private ProgressRing progress=>current.progress;
     private Button stopWaiting=>current.stopWaiting;
     private StackPanel messages=>current.messages;
     private ScrollViewer scroll=>current.scroll;
-    private Button thumbnail=>current.thumbnail;
-    private Image draftImage=>current.draftImage;
     private StackPanel empty=>current.empty;
     private HashSet<string> submittedTargets=>current.submittedTargets;
     private HashSet<(string Target,string Prompt)> submittedTextPrompts=>current.submittedTextPrompts;
@@ -112,7 +102,8 @@ internal sealed partial class FloatingPanelWindow : Window
     private readonly AdjustableBackdrop toolbarBackdrop,messageBackdrop;
     private readonly TransparentPanelBackdrop transparentHost;
     private readonly UiTransition transition=new();
-    private readonly UISettings visualSettings=new();
+    private readonly AnimationScope motion;
+    internal AnimationScope MotionScope=>motion;
     private PanelAppearance appearance;
     private bool toolbarCompact;
     private bool hiddenForOperation;
@@ -122,6 +113,7 @@ internal sealed partial class FloatingPanelWindow : Window
     private readonly PanelInputTransparency inputTransparency;
     private readonly PanelShadowWindow shadowWindow;
     internal PanelShadowWindow ShadowWindow=>shadowWindow;
+    private bool synchronizingShadow;
     private bool expanded,closed;
     private bool toolbarVisible=true,messageVisible=true;
     private double logicalWidth=544,toolbarHeight=56,messageHeight=540;
@@ -134,7 +126,6 @@ internal sealed partial class FloatingPanelWindow : Window
     private TextBlock? latestResponseHeading {get=>current.latestResponseHeading;set=>current.latestResponseHeading=value;}
     private TextBlock? latestResponseModel {get=>current.latestResponseModel;set=>current.latestResponseModel=value;}
     private byte[] png {get=>current.png;set=>current.png=value;}
-    private int imageVersion {get=>current.imageVersion;set=>current.imageVersion=value;}
     private int operationVersion {get=>current.operationVersion;set=>current.operationVersion=value;}
     private bool busy {get=>current.busy;set=>current.busy=value;}
     private long messageInteractionVersion {get=>current.messageInteractionVersion;set=>current.messageInteractionVersion=value;}
@@ -154,8 +145,8 @@ internal sealed partial class FloatingPanelWindow : Window
     internal MarkdownMessageView? ResponseView=>latestResponse;
     internal bool CanSendFromComposer=>send.IsEnabled;
     internal byte[] CurrentImage=>png;
-    internal bool HasScreenshotPreview=>thumbnail.Visibility==Visibility.Visible&&draftImage.Source!=null;
     internal Button ComposerSendButton=>send;
+    internal TextBox ComposerPromptEditor=>prompt;
     internal ComboBox ComposerModeSelector=>composerMode;
     private string ComposerTarget=>composerMode.SelectedIndex==1?"Agent":"Codex";
     internal Task? ComposerSendTask {get;private set;}
@@ -190,7 +181,7 @@ internal sealed partial class FloatingPanelWindow : Window
         Func<SendRequest,Action<AgentReplyUpdate>,CancellationToken,Task<SendResult>>? sendAgent=null,string? conversationDirectory=null)
     {
         this.conversationDirectory=conversationDirectory;
-        this.app=app;appearance=app.Settings.PanelAppearance;this.sendCodex=sendCodex??app.Codex.SendWithReplyAsync;this.sendAgent=sendAgent??app.Agent.SendWithReplyAsync;Title="AI ScreenShot · 消息";Handle=WinRT.Interop.WindowNative.GetWindowHandle(this);
+        this.app=app;appearance=app.Settings.PanelAppearance;motion=app.Animations.CreateScope();this.sendCodex=sendCodex??app.Codex.SendWithReplyAsync;this.sendAgent=sendAgent??app.Agent.SendWithReplyAsync;Title="AI ScreenShot · 消息";Handle=WinRT.Interop.WindowNative.GetWindowHandle(this);
         Native.SetWindowLongPtr(Handle,-20,(Native.GetWindowLongPtr(Handle,-20)|0x80)&~0x40000);
         var presenter=OverlappedPresenter.Create();presenter.SetBorderAndTitleBar(false,false);presenter.IsResizable=false;presenter.IsMaximizable=false;presenter.IsMinimizable=false;presenter.IsAlwaysOnTop=true;AppWindow.SetPresenter(presenter);
         // No native frame surrounds the transparent host; pane grips provide resizing.
@@ -227,7 +218,8 @@ internal sealed partial class FloatingPanelWindow : Window
         messageBackdrop=AttachMaterial(MessageSurface,appearance.Messages);
         toolbarStroke=AttachStroke(ToolbarSurface);messageStroke=AttachStroke(MessageSurface);
         ApplyAppearance(appearance);
-        visualSettings.AnimationsEnabledChanged+=SystemAnimationsChanged;
+        app.Animations.Changed+=MotionChanged;
+        motion.WatchTree(toolGrid,AnimationArea.Toolbar);motion.WatchTree(tabRow,AnimationArea.Tabs);
         moveController=new PanelMoveController(Handle,MovePanel,()=>!closed&&expanded&&!fullScreen&&!resizeController.IsDragging&&!paneMenu.IsOpen);
         moveController.Attach(ToolbarSurface);moveController.Attach(MessageSurface);
         ToolTipService.SetToolTip(ToolbarSurface,"按住空白区域左键拖动，可移动工具栏和消息栏");
@@ -239,17 +231,16 @@ internal sealed partial class FloatingPanelWindow : Window
         ConfigureMore();RestoreConversations();RenderTabs();UpdateButtons();
         app.Themes.Track(this);
         app.Themes.Changed+=UpdateStrokeBrush;outer.ActualThemeChanged+=StrokeThemeChanged;UpdateStrokeBrush();
-        Closed+=(_,_)=>{closed=true;inputTransparency.Dispose();shadowWindow.Dispose();app.Themes.Changed-=UpdateStrokeBrush;outer.ActualThemeChanged-=StrokeThemeChanged;outer.LayoutUpdated-=WindowLayoutUpdated;transition.Dispose();composerTransition.Dispose();visualSettings.AnimationsEnabledChanged-=SystemAnimationsChanged;toolbarBackdrop.Dispose();messageBackdrop.Dispose();moveController.Dispose();resizeController.Dispose();foreach(var view in conversations.Values){view.operationVersion++;view.imageVersion++;}lifetime.Cancel();store?.Dispose();ClosePreview();lifetime.Dispose();app.Panel=null;app.EndCaptureSession(false);};
+        Closed+=(_,_)=>{closed=true;StopShadowSynchronization();app.Animations.Changed-=MotionChanged;motion.Dispose();inputTransparency.Dispose();shadowWindow.Dispose();app.Themes.Changed-=UpdateStrokeBrush;outer.ActualThemeChanged-=StrokeThemeChanged;outer.LayoutUpdated-=WindowLayoutUpdated;transition.Dispose();composerTransition.Dispose();toolbarBackdrop.Dispose();messageBackdrop.Dispose();moveController.Dispose();resizeController.Dispose();foreach(var view in conversations.Values){view.operationVersion++;}lifetime.Cancel();store?.Dispose();ClosePreview();lifetime.Dispose();app.Panel=null;app.EndCaptureSession(false);};
     }
 
     private Grid BuildConversationView()
     {
         var view=current;
         UiDesign.Apply(send,"SS.PrimaryButtonStyle");send.Content=ActionContent("发送","\uE724");
-        UiDesign.Apply(capture,"SS.QuietButtonStyle");capture.Content=ActionContent("截取屏幕","\uE722");
         UiDesign.Apply(stopWaiting,"SS.QuietButtonStyle");stopWaiting.FontSize=UiDesign.Number("SS.Typography.Caption");
         UiDesign.Apply(prompt,"SS.PromptTextBoxStyle");
-        UiDesign.Apply(status,"SS.CaptionTextStyle");UiDesign.Apply(dimensions,"SS.CaptionTextStyle");dimensions.TextWrapping=TextWrapping.NoWrap;
+        UiDesign.Apply(status,"SS.CaptionTextStyle");
         workspace.FontSize=UiDesign.Number("SS.Typography.Caption");workspace.MinHeight=UiDesign.Number("SS.ControlHeight");workspace.CornerRadius=UiDesign.Corner("SS.Corner.Control");
 
         var messageGrid=new Grid{RowSpacing=UiDesign.Number("SS.Spacing.M"),Padding=UiDesign.Thickness("SS.Padding.Surface")};
@@ -271,12 +262,9 @@ internal sealed partial class FloatingPanelWindow : Window
         var emptyDescription=StyledText("输入提示词即可对话，也可以截取屏幕一起发送。","SS.CaptionTextStyle");emptyDescription.MaxWidth=300;emptyDescription.TextAlignment=TextAlignment.Center;empty.Children.Add(emptyDescription);
         var firstCapture=new Button{Content=ActionContent("截取屏幕","\uE722"),HorizontalAlignment=HorizontalAlignment.Center};UiDesign.Apply(firstCapture,"SS.PrimaryButtonStyle");firstCapture.Click+=(_,_)=>app.BeginCapture();empty.Children.Add(firstCapture);conversation.Children.Add(empty);
         Grid.SetRow(conversation,2);messageGrid.Children.Add(conversation);
-        var draft=new Grid{ColumnSpacing=UiDesign.Number("SS.Spacing.S")};draft.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});draft.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});draft.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});
-        UiDesign.Apply(thumbnail,"SS.QuietButtonStyle");thumbnail.CornerRadius=UiDesign.Corner("SS.Corner.Control");
-        thumbnail.Content=draftImage;Label(thumbnail,"查看当前截图详情");thumbnail.Click+=async(_,_)=>await ShowPreviewAsync(png);draft.Children.Add(thumbnail);Grid.SetColumn(dimensions,1);draft.Children.Add(dimensions);
-        capture.Click+=(_,_)=>app.BeginCapture();Label(capture,"截取新的屏幕区域");Grid.SetColumn(capture,2);draft.Children.Add(capture);
         var composer=new Grid{ColumnSpacing=UiDesign.Number("SS.Spacing.S")};composer.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});composer.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});
         AutomationProperties.SetName(prompt,"对话或截图提示词");composer.Children.Add(prompt);
+        AutomationProperties.SetHelpText(prompt,"Ctrl+Enter 发送当前截图和提示词；Enter 换行。发送模式由右侧选择器决定。");
         composerMode.CornerRadius=UiDesign.Corner("SS.Corner.Control");Label(composerMode,"发送模式：Codex 或 Agent");
         AutomationProperties.SetHelpText(composerMode,"选择输入框旁发送按钮使用的模式；工具栏按钮仍分别发送到各自目标");
         var sendActions=new StackPanel{Spacing=UiDesign.Number("SS.Spacing.XS"),VerticalAlignment=VerticalAlignment.Bottom};
@@ -284,14 +272,22 @@ internal sealed partial class FloatingPanelWindow : Window
         Grid.SetColumn(sendActions,1);composer.Children.Add(sendActions);
         composerMode.SelectionChanged+=(_,_)=>{view.Data.Client=view.composerMode.SelectedIndex==1?"Agent":"Codex";if(!restoring){Persist(view);if(ReferenceEquals(view,current))UpdateButtons();}};
         prompt.TextChanged+=(_,_)=>{if(ReferenceEquals(view,current))UpdateButtons();if(!restoring){view.Data.Draft=view.prompt.Text;Persist(view);}};
-        send.Click+=async(_,_)=>{ComposerSendTask=SendAsync(ComposerTarget);await ComposerSendTask;};
-        var inputRegion=new StackPanel{Spacing=UiDesign.Number("SS.Spacing.S")};inputRegion.Children.Add(draft);inputRegion.Children.Add(composer);
+        send.Click+=async(_,_)=>await SendFromComposerAsync(view);
         var inputHost=new Grid();
-        var inputSurface=Surface("SS.ComposerSurfaceStyle");view.InputSurface=inputSurface;inputSurface.Padding=UiDesign.Thickness("SS.Spacing.M");inputSurface.Margin=new Thickness(0,10,0,0);view.InputControls=new ContentControl{Content=inputRegion,HorizontalContentAlignment=HorizontalAlignment.Stretch,IsTabStop=false};inputSurface.Child=view.InputControls;inputSurface.RenderTransform=view.InputTranslation;inputHost.Children.Add(inputSurface);
+        var inputSurface=Surface("SS.ComposerSurfaceStyle");view.InputSurface=inputSurface;inputSurface.Padding=UiDesign.Thickness("SS.Spacing.M");inputSurface.Margin=new Thickness(0,10,0,0);view.InputControls=new ContentControl{Content=composer,HorizontalContentAlignment=HorizontalAlignment.Stretch,IsTabStop=false};inputSurface.Child=view.InputControls;inputSurface.RenderTransform=view.InputTranslation;inputHost.Children.Add(inputSurface);
+        AutomationProperties.SetAcceleratorKey(send,"Ctrl+Enter");
+        // Multiline TextBox consumes Enter before ancestor accelerators; intercept only the send chord.
+        inputHost.PreviewKeyDown+=async(_,args)=>
+        {
+            if(args.Key!=VirtualKey.Enter)return;
+            static bool Down(VirtualKey key)=>Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(key).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+            if(!Down(VirtualKey.Control)||Down(VirtualKey.Shift)||Down(VirtualKey.Menu)||Down(VirtualKey.LeftWindows)||Down(VirtualKey.RightWindows))return;
+            args.Handled=true;await SendFromComposerAsync(view);
+        };
         var inputToggle=new Button{HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Top};view.InputToggle=inputToggle;UiDesign.Apply(inputToggle,"SS.ComposerToggleButtonStyle");inputToggle.Click+=(_,_)=>SetComposerCollapsed(!composerCollapsed);inputHost.Children.Add(inputToggle);
         inputHost.SizeChanged+=(_,_)=>inputHost.Clip=new RectangleGeometry{Rect=new Windows.Foundation.Rect(0,0,inputHost.ActualWidth,inputHost.ActualHeight)};
         ApplyComposerState(view);Grid.SetRow(inputHost,3);messageGrid.Children.Add(inputHost);
-        ConfigureWorkspace();return messageGrid;
+        ConfigureWorkspace();motion.WatchTree(messageGrid,AnimationArea.Messages);return messageGrid;
     }
 
     private static AdjustableBackdrop AttachMaterial(Border surface,SurfaceAppearance appearance)
@@ -311,6 +307,7 @@ internal sealed partial class FloatingPanelWindow : Window
     {
         if(closed)return;
         this.appearance=appearance=appearance.Normalize();
+        app.Animations.Apply(appearance);
         toolbarBackdrop.Update(appearance.Toolbar);messageBackdrop.Update(appearance.Messages);
         foreach(var backdrop in MaterialBackdrops)backdrop.SetAccent(app.Themes.AccentColor,appearance.AccentMix);
         uint borderColor=0xfffffffeu;
@@ -318,7 +315,7 @@ internal sealed partial class FloatingPanelWindow : Window
         uint cornerPolicy=1;
         if(Native.DwmSetWindowAttribute(Handle,33,ref cornerPolicy,sizeof(uint))<0)throw new InvalidOperationException("无法关闭透明宿主的系统圆角");
         foreach(var stroke in EdgeStrokes)stroke.BorderThickness=new Thickness(appearance.ShowBorders?appearance.BorderThickness:0);
-        if(!appearance.EnableAnimations){if(transition.IsRunning)FinishVisualTransition();FinishComposerTransition();}
+        if(!app.Animations.Profile(AnimationArea.Panel).Enabled&&!app.Animations.Profile(AnimationArea.Toolbar).Enabled){if(transition.IsRunning)FinishVisualTransition();FinishComposerTransition();}
         UpdatePaneVisuals();
     }
 
@@ -334,16 +331,19 @@ internal sealed partial class FloatingPanelWindow : Window
         stroke.CornerRadius=surface.CornerRadius;
         ((Grid)surface.Child).Children.Add(stroke);return stroke;
     }
-    private void UpdatePaneVisuals()
+    private void UpdatePaneVisuals(bool prepareShadow=false)
     {
         if(closed)return;
         geometry.Update();
         inputTransparency.Update();
-        if(fullScreen)shadowWindow.Hide();else shadowWindow.Update(geometry.Shapes,appearance,Math.Max(96u,Native.GetDpiForWindow(Handle))/96d,app.Themes.IsHighContrast(outer));
+        if(fullScreen)shadowWindow.Hide();else shadowWindow.Update(geometry.Shapes,appearance,Math.Max(96u,Native.GetDpiForWindow(Handle))/96d,app.Themes.IsHighContrast(outer),prepareShadow);
     }
+    private void SynchronizeShadow(object? sender,object args)=>UpdatePaneVisuals();
+    private void StopShadowSynchronization()
+    {if(!synchronizingShadow)return;synchronizingShadow=false;CompositionTarget.Rendering-=SynchronizeShadow;}
 
-    private void SystemAnimationsChanged(UISettings sender,object args)
-    {DispatcherQueue.TryEnqueue(()=>{if(!closed&&!visualSettings.AnimationsEnabled){FinishVisualTransition();FinishComposerTransition();}});}
+    private void MotionChanged()
+    {if(!closed){FinishVisualTransition();FinishComposerTransition();}}
 
     private static Border Surface(string styleKey)
     {
@@ -490,6 +490,8 @@ internal sealed partial class FloatingPanelWindow : Window
         moveController.Cancel();MovePaneMenu();
         ToolbarSurface.Visibility=toolbarVisible?Visibility.Visible:Visibility.Collapsed;
         MessageSurface.Visibility=messageVisible?Visibility.Visible:Visibility.Collapsed;
+        if(toolbarVisible)motion.WatchTree(toolGrid,AnimationArea.Toolbar);
+        if(messageVisible){motion.WatchTree(tabRow,AnimationArea.Tabs);motion.WatchTree(current.Content,AnimationArea.Messages);}
         layout.RowSpacing=toolbarVisible&&messageVisible?12:0;
         foreach(var button in new[]{copy,save,more})
         {button.Visibility=toolbarCompact?Visibility.Collapsed:Visibility.Visible;button.Opacity=1;button.IsHitTestVisible=!toolbarCompact;}
@@ -498,6 +500,7 @@ internal sealed partial class FloatingPanelWindow : Window
     private void TransitionPaneState(bool opening=false)
     {
         if(fullScreen){CommitVisualState();if(expanded&&!hiddenForOperation)AppWindow.Show(false);return;}
+        StopShadowSynchronization();
         transition.Stop();
         bool shown=Native.IsWindowVisible(Handle);
         double oldToolbarHeight=ToolbarSurface.Height,oldMessageHeight=MessageSurface.Height;
@@ -525,9 +528,33 @@ internal sealed partial class FloatingPanelWindow : Window
             if(!toolbarCompact&&button.Visibility==Visibility.Collapsed){button.Opacity=0;button.Visibility=Visibility.Visible;}
             button.IsHitTestVisible=!toolbarCompact;tracks.Add(OpacityTrack(button,toolbarCompact?0:1));
         }
-        outer.UpdateLayout();UpdatePaneVisuals();
+        var toolbarMotion=app.Animations.Profile(AnimationArea.Toolbar);var panelMotion=app.Animations.Profile(AnimationArea.Panel);
+        bool minimal=appearance.Motion.Style==AnimationStyle.Minimal;
+        if(minimal)
+        {
+            // Fade the existing layout on exit; commit removal only at the endpoint.
+            // Prepare the full destination layout before either HWND becomes visible.
+            ToolbarSurface.Height=expanded&&toolbarVisible?toolbarHeight:Math.Max(0,oldToolbarHeight);
+            MessageSurface.Height=expanded&&messageVisible?messageHeight:Math.Max(0,oldMessageHeight);
+            ToolbarSurface.Width=ToolbarWidth;
+            layout.RowSpacing=expanded&&toolbarVisible&&messageVisible?UiDesign.Number("SS.Spacing.M"):oldGap;
+            tracks=tracks.Where(track=>track.Property=="Opacity").ToList();
+            motion.Reset(toolGrid);motion.Reset((FrameworkElement)MessageSurface.Child);
+        }
+        tracks=tracks.Select(track=>track with{Animate=(ReferenceEquals(track.Target,MessageSurface)?panelMotion.Enabled:
+            ReferenceEquals(track.Target,layout)?toolbarMotion.Enabled||panelMotion.Enabled:toolbarMotion.Enabled)&&(!minimal||track.Property=="Opacity")}).ToList();
+        outer.UpdateLayout();UpdatePaneVisuals(prepareShadow:expanded&&!hiddenForOperation);
         if(expanded&&!hiddenForOperation){AppWindow.Show(false);UpdatePaneVisuals();}
-        transition.Start(tracks,appearance.EnableAnimations&&visualSettings.AnimationsEnabled&&(shown||expanded)&&!hiddenForOperation,CommitVisualState);
+        if(!minimal)
+        {
+            if(expanded&&toolbarVisible&&(opening||toolbarCollapsed))motion.Enter(toolGrid,AnimationArea.Toolbar,fade:false);
+            else if(!expanded||!toolbarVisible)motion.Exit(toolGrid,AnimationArea.Toolbar,()=>{},fade:false);
+            if(expanded&&messageVisible&&(opening||messageCollapsed))motion.Enter((FrameworkElement)MessageSurface.Child,AnimationArea.Panel,fade:false);
+            else if(!expanded||!messageVisible)motion.Exit((FrameworkElement)MessageSurface.Child,AnimationArea.Panel,()=>{},fade:false);
+        }
+        var timing=toolbarMotion.Enabled?toolbarMotion:panelMotion;
+        transition.Start(tracks,(shown||expanded)&&!hiddenForOperation,CommitVisualState,timing);
+        if(transition.IsRunning){synchronizingShadow=true;CompositionTarget.Rendering+=SynchronizeShadow;}
     }
 
     private static UiTransition.Track HeightTrack(FrameworkElement element,double target)
@@ -537,6 +564,7 @@ internal sealed partial class FloatingPanelWindow : Window
 
     private void CommitVisualState()
     {
+        StopShadowSynchronization();
         if(closed)return;
         if(!expanded||hiddenForOperation){shadowWindow.Hide();AppWindow.Hide();}
         ApplyPaneVisibility();ToolbarSurface.Opacity=MessageSurface.Opacity=1;
@@ -544,7 +572,7 @@ internal sealed partial class FloatingPanelWindow : Window
         outer.UpdateLayout();UpdatePaneVisuals();
     }
 
-    private void FinishVisualTransition(){transition.Stop();CommitVisualState();}
+    private void FinishVisualTransition(){motion.Finish();transition.Stop();CommitVisualState();}
 
     private double WindowChromeWidth=>Native.GetWindowRect(Handle,out var bounds)&&Native.GetClientRect(Handle,out var client)?Math.Max(0,(bounds.Right-bounds.Left-client.Right+client.Left)/(Math.Max(96u,Native.GetDpiForWindow(Handle))/96d)):0;
     private double ToolbarWidth=>toolbarCompact?Math.Min(Math.Max(1,logicalWidth-HostInsets-WindowChromeWidth),UiDesign.Number("SS.ToolbarButtonWidth")*2+UiDesign.Number("SS.ControlHeight")+UiDesign.Number("SS.Spacing.S")+UiDesign.Number("SS.Spacing.XS")+HostInsets):Math.Max(1,logicalWidth-HostInsets-WindowChromeWidth);
@@ -708,8 +736,9 @@ internal sealed partial class FloatingPanelWindow : Window
         if(closed)return;
         var origin=current;
         int version=++captureVersion;
-        var bitmap=await LoadBitmapAsync(image,160);if(closed||version!=captureVersion||stillCurrent?.Invoke()==false)return;
-        latestCapture=new(image,bitmap,region);messageVisible=true;
+        // Preserve asynchronous validation and stale/canceled capture protection.
+        await LoadBitmapAsync(image,160);if(closed||version!=captureVersion||stillCurrent?.Invoke()==false)return;
+        latestCapture=new(image);messageVisible=true;
         ApplyLatestCapture(current);
         if(!busy&&ReferenceEquals(origin,current))prompt.Text="";
         SetComposerCollapsed(false,false);UpdateButtons();Open();
@@ -721,10 +750,9 @@ internal sealed partial class FloatingPanelWindow : Window
         if(captureDraft==null||restoring||view.Content==null||view.busy||ReferenceEquals(view.Capture,captureDraft))return;
         // Active requests own their snapshot. Other tabs adopt the latest capture only once,
         // so returning to a submitted tab cannot unlock the same screenshot for a duplicate send.
-        view.Capture=captureDraft;view.imageVersion++;
+        view.Capture=captureDraft;
         view.png=captureDraft.Png;view.submittedTargets.Clear();view.Data.DraftImage=null;
-        view.dimensions.Text=$"当前截图 · {captureDraft.Region.Width} × {captureDraft.Region.Height}";
-        view.thumbnail.Visibility=Visibility.Visible;view.draftImage.Source=captureDraft.Preview;
+        if(ReferenceEquals(view,current)&&expanded)motion.Enter(view.status,AnimationArea.Messages);
         bool hasWorkspace=app.Codex.IsProvider?view.Data.Workspace?.DirectoryPath!=null:view.Data.Workspace!=null;
         SetStatus(hasWorkspace?"截图已就绪":app.Codex.IsProvider?"截图已就绪 · 请选择 Codex 工作目录":"截图已就绪 · 请选择 Codex 工作区",destination:view);
         PersistImage(view,captureDraft.Png);
@@ -775,6 +803,8 @@ internal sealed partial class FloatingPanelWindow : Window
         var bubble=Surface(assistant?"SS.AssistantMessageStyle":"SS.UserMessageStyle");bubble.MaxWidth=Math.Max(1,fullScreen?outer.ActualWidth-56:logicalWidth-82);
         bubble.HorizontalAlignment=assistant?HorizontalAlignment.Right:HorizontalAlignment.Left;bubble.Child=content;
         view.messages.Children.Add(bubble);
+        if(!restoring&&ReferenceEquals(view,current)&&expanded)motion.Enter(bubble,AnimationArea.Messages);
+        motion.WatchTree(bubble,AnimationArea.Messages);
         // Settle inserted bubbles before a fast reply captures its follow-bottom offset.
         if(ReferenceEquals(view,current)){scroll.UpdateLayout();ScrollMessageToBottom();}return bubble;
     }
@@ -814,8 +844,13 @@ internal sealed partial class FloatingPanelWindow : Window
         ApplyLatestCapture(current);
         codex.IsEnabled=CanSendTo("Codex");agent.IsEnabled=CanSendTo("Agent");
         send.IsEnabled=ComposerTarget=="Agent"?agent.IsEnabled:codex.IsEnabled;composerMode.IsEnabled=!busy;
-        Label(send,(png.Length>0?"发送截图和提示词到 ":"发送提示词到 ")+ComposerTarget);UpdateLayoutDimensions();
-        copy.IsEnabled=save.IsEnabled=!busy&&png.Length>0;more.IsEnabled=capture.IsEnabled=workspace.IsEnabled=prompt.IsEnabled=!busy;
+        Label(send,(png.Length>0?"发送截图和提示词到 ":"发送提示词到 ")+ComposerTarget+"（Ctrl+Enter）");UpdateLayoutDimensions();
+        copy.IsEnabled=save.IsEnabled=!busy&&png.Length>0;more.IsEnabled=workspace.IsEnabled=prompt.IsEnabled=!busy;
+    }
+    private Task SendFromComposerAsync(ConversationView view)
+    {
+        if(closed||!expanded||hiddenForOperation||composerCollapsed||!ReferenceEquals(view,current)||!view.send.IsEnabled)return Task.CompletedTask;
+        ComposerSendTask=SendAsync(ComposerTarget);return ComposerSendTask;
     }
     internal Task SendCodexAsync()=>SendAsync("Codex");
     internal void StopWaiting()

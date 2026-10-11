@@ -14,6 +14,7 @@ internal static class Native
     [DllImport("dwmapi.dll")] public static extern int DwmEnableBlurBehindWindow(nint window,ref BlurBehind blur);
     [StructLayout(LayoutKind.Sequential,Pack=1)] public struct BlendFunction { public byte Operation,Flags,ConstantAlpha,AlphaFormat; }
     [DllImport("user32.dll",SetLastError=true)] public static extern bool UpdateLayeredWindow(nint window,nint screen,ref Point destination,ref Size size,nint source,ref Point origin,uint colorKey,ref BlendFunction blend,uint flags);
+    [DllImport("user32.dll",EntryPoint="UpdateLayeredWindow",SetLastError=true)] public static extern bool UpdateLayeredWindowOpacity(nint window,nint screen,nint destination,nint size,nint source,ref Point origin,uint colorKey,ref BlendFunction blend,uint flags);
     [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left,Top,Right,Bottom; }
     [StructLayout(LayoutKind.Sequential)] public struct WindowStyles { public uint Old,New; }
     [StructLayout(LayoutKind.Sequential)] public struct BitmapInfo { public uint Size; public int Width,Height; public ushort Planes,BitCount; public uint Compression,SizeImage; public int XPels,YPels; public uint Used,Important; }

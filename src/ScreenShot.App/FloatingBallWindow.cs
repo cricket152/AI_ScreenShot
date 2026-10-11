@@ -5,10 +5,8 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Animation;
 using Windows.Graphics;
 using Windows.System;
-using Windows.UI.ViewManagement;
 
 namespace ScreenShot.App;
 
@@ -18,10 +16,8 @@ internal sealed class FloatingBallWindow : Window
     private readonly Button button;
     private readonly Action expand;
     private readonly SubclassProc subclass;
-    private readonly ScaleTransform feedbackScale=new();
-    private readonly UISettings accessibility=new();
+    private readonly AnimationScope motion;
     private readonly AdjustableBackdrop backdrop=new(new(ScreenShot.Core.SurfaceMaterial.AcrylicThin,0.42));
-    private Storyboard? feedbackAnimation;
     private bool pointerOver,keyboardPressed;
     private bool positioned,pressed,dragging,suppressClick,repositionPending,closed;
     private Native.Point pressPoint;
@@ -31,6 +27,7 @@ internal sealed class FloatingBallWindow : Window
     public FloatingBallWindow(Action expand,Action hide,Action settings)
     {
         this.expand=expand;Title="AI ScreenShot 悬浮入口";
+        motion=((App)Application.Current).Animations.CreateScope();
         Handle=WinRT.Interop.WindowNative.GetWindowHandle(this);
         Native.SetWindowLongPtr(Handle,-20,(Native.GetWindowLongPtr(Handle,-20)|0x80)&~0x40000);
         var presenter=OverlappedPresenter.Create();
@@ -39,8 +36,7 @@ internal sealed class FloatingBallWindow : Window
         AppWindow.SetPresenter(presenter);
         SystemBackdrop=backdrop;
 
-        button=new Button{HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center,
-            RenderTransform=feedbackScale,RenderTransformOrigin=new Windows.Foundation.Point(0.5,0.5)};
+        button=new Button{HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center};
         UiDesign.Apply(button,"SS.BallButtonStyle");
         button.Content=new Image{Source=new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(Path.Combine(AppContext.BaseDirectory,"Assets","AppIcon.png"))),Width=32,Height=32,Stretch=Stretch.Uniform};
         AutomationProperties.SetName(button,"AI ScreenShot 悬浮入口");
@@ -67,7 +63,7 @@ internal sealed class FloatingBallWindow : Window
 
         subclass=WindowMessage;
         if(!SetWindowSubclass(Handle,subclass,1,0))throw new InvalidOperationException("无法初始化悬浮入口窗口");
-        Closed+=(_,_)=>{closed=true;backdrop.Dispose();feedbackAnimation?.Stop();RemoveWindowSubclass(Handle,subclass,1);};
+        Closed+=(_,_)=>{closed=true;backdrop.Dispose();motion.Dispose();RemoveWindowSubclass(Handle,subclass,1);};
         ((App)Application.Current).Themes.Track(this);
     }
 
@@ -144,18 +140,7 @@ internal sealed class FloatingBallWindow : Window
     private void UpdateFeedback()
     {
         if(closed)return;
-        double target=pressed||keyboardPressed?UiDesign.Number("SS.Motion.PressedScale"):pointerOver?UiDesign.Number("SS.Motion.HoverScale"):1;
-        double current=feedbackScale.ScaleX;feedbackAnimation?.Stop();
-        feedbackScale.ScaleX=feedbackScale.ScaleY=current;
-        if(!accessibility.AnimationsEnabled){feedbackScale.ScaleX=feedbackScale.ScaleY=target;return;}
-        var storyboard=new Storyboard();
-        foreach(string property in new[]{"ScaleX","ScaleY"})
-        {
-            var animation=new DoubleAnimation{From=current,To=target,Duration=new Duration(TimeSpan.FromMilliseconds(UiDesign.Number("SS.Motion.Fast"))),
-                EnableDependentAnimation=true,EasingFunction=new CubicEase{EasingMode=EasingMode.EaseOut}};
-            Storyboard.SetTarget(animation,feedbackScale);Storyboard.SetTargetProperty(animation,property);storyboard.Children.Add(animation);
-        }
-        feedbackAnimation=storyboard;storyboard.Begin();
+        motion.Feedback(button,ScreenShot.Core.AnimationArea.Toolbar,pointerOver,pressed||keyboardPressed);
     }
 
     private int PhysicalSize()=>Math.Max(1,(int)Math.Round(LogicalSize*Math.Max(96u,Native.GetDpiForWindow(Handle))/96d));
