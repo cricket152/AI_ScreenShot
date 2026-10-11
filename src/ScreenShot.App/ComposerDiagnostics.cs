@@ -20,11 +20,13 @@ public partial class App
         string storage=Path.Combine(output,"composer-fixtures",Guid.NewGuid().ToString("N"));Directory.CreateDirectory(storage);
         var requests=new List<(string Target,SendRequest Request)>();
         var gate=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool retryFailed=true;
         async Task<SendResult> Send(string target,SendRequest request,CancellationToken token)
         {
             if(request.IsTitleRequest)return new(SendState.Failed,"generated title skipped");
             requests.Add((target,request));
             if(request.Prompt=="busy fixture")await gate.Task.WaitAsync(token);
+            if(request.Prompt=="retry text fixture"&&retryFailed){retryFailed=false;return new(SendState.Failed,"generated failure");}
             return new(target=="Codex"?SendState.Unknown:SendState.Sent,"generated receipt");
         }
         static IEnumerable<T> Find<T>(DependencyObject node) where T:DependencyObject
@@ -69,6 +71,11 @@ public partial class App
         }
         async Task CompleteSend()
         {if(panel!.ComposerSendTask==null)throw new InvalidOperationException("Ctrl+Enter did not start a composer send");await panel.ComposerSendTask.WaitAsync(TimeSpan.FromSeconds(5));}
+        async Task InvokeSend()
+        {
+            ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(panel!.ComposerSendButton).GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
+            await Task.Delay(30);await CompleteSend();
+        }
         int checks=0;void Check(bool condition,string reason){if(!condition)throw new InvalidOperationException(reason);checks++;}
         try
         {
@@ -98,18 +105,69 @@ public partial class App
             Check(requests.Count==3&&requests[^1].Target=="Codex"&&requests[^1].Request.Png.SequenceEqual(image),"Ctrl+Enter ignored the selected Codex mode");
             await Focus(panel.ComposerModeSelector);await Press(VirtualKeyModifiers.Control);
             Check(requests.Count==3,"Ctrl+Enter retried an Unknown submission");
-            panel.NewConversation();panel.ComposerModeSelector.SelectedIndex=1;panel.PromptText="busy fixture";
+            panel.NewConversation();string second=panel.CurrentConversationId;panel.ComposerModeSelector.SelectedIndex=1;panel.PromptText="busy fixture";
             await Focus(Prompt());await Press(VirtualKeyModifiers.Control,repeats:2);
             Check(requests.Count==4&&panel.IsBusy&&!panel.IsComposerCollapsed,"Repeated Ctrl+Enter submitted duplicate busy requests or collapsed the composer");
             gate.TrySetResult();await CompleteSend();
-            panel.NewConversation();panel.ComposerModeSelector.SelectedIndex=1;panel.PromptText="scope fixture";
+            panel.NewConversation();string third=panel.CurrentConversationId;panel.ComposerModeSelector.SelectedIndex=1;panel.PromptText="scope fixture";
             await Focus(panel.FullScreenButton);await Press(VirtualKeyModifiers.Control);
             Check(requests.Count==4,"Ctrl+Enter escaped the composer scope");
             panel.ExitFullScreen();
             await Focus(Prompt());await Press(VirtualKeyModifiers.Control);await CompleteSend();
             Check(requests.Count==5&&requests[^1].Request.Prompt=="scope fixture"&&requests[^1].Request.Png.SequenceEqual(image),"Shortcut targeted an inactive tab or discarded its screenshot");
+
+            panel.SelectConversationForDiagnostic(second);
+            Check(!panel.CanSendFromComposer,"An unchanged image prompt became a duplicate text submission");
+            panel.PromptText="second text follow-up";
+            await Task.Delay(30);
+            Check(panel.CanSendFromComposer,"Second conversation blocks a new text-only follow-up after submitting its screenshot");
+            await InvokeSend();
+            Check(requests.Count==6&&requests[^1].Target=="Agent"&&requests[^1].Request.Png.Length==0&&requests[^1].Request.Prompt=="second text follow-up","Second conversation Send did not dispatch a text-only follow-up");
+            Check(requests[^1].Request.Conversation?.History.Any(message=>message.Role=="user"&&message.Png?.SequenceEqual(image)==true)==true,"Text follow-up discarded the screenshot from Agent history");
+            using(var store=new ConversationStore(storage))
+            {
+                var saved=store.Load().Single(conversation=>conversation.Id==second);
+                Check(saved.Messages.Last(message=>message.Role=="user").Image==null&&store.ReadImage(saved.DraftImage).SequenceEqual(image),"Text follow-up persisted an old attachment or discarded the draft screenshot");
+            }
+            Check(!panel.CanSendFromComposer,"Sent text follow-up can be submitted twice");
+            panel.PromptText=" \r\n\t";
+            await Task.Delay(30);
+            Check(!panel.CanSendFromComposer,"A consumed screenshot makes a whitespace-only follow-up sendable");
+            panel.PromptText="retry text fixture";await Task.Delay(30);await InvokeSend();
+            Check(panel.CanSendFromComposer&&requests.Count==7&&requests[^1].Request.Png.Length==0,"Failed follow-up cannot retry or reattached an old screenshot");
+            await InvokeSend();
+            Check(requests.Count==8&&!panel.CanSendFromComposer,"Text follow-up retry did not lock its successful receipt");
+            panel.ComposerModeSelector.SelectedIndex=0;await InvokeSend();
+            Check(requests.Count==9&&requests[^1].Target=="Codex"&&requests[^1].Request.Png.SequenceEqual(image)&&!panel.CanSendFromComposer,"Text follow-up altered the other target's unsent image or Unknown protection");
+            panel.PromptText="Codex text follow-up";await Task.Delay(30);await InvokeSend();
+            Check(requests.Count==10&&requests[^1].Target=="Codex"&&requests[^1].Request.Png.Length==0&&!panel.CanSendFromComposer,"Unknown image receipt blocks a new text turn or retries its old image");
+            panel.SelectConversationForDiagnostic(third);panel.PromptText="third text follow-up";
+            await Task.Delay(30);
+            Check(panel.CanSendFromComposer,"Third conversation inherited another tab's submission lock");
+            await Focus(Prompt());await Press(VirtualKeyModifiers.Control);await CompleteSend();
+            Check(requests.Count==11&&requests[^1].Request.Png.Length==0&&requests[^1].Request.Prompt=="third text follow-up","Third conversation Ctrl+Enter did not send its own text-only follow-up");
+            panel.SelectConversationForDiagnostic(second);
+            Check(panel.PromptText=="Codex text follow-up"&&!panel.CanSendFromComposer,"Switching tabs changed the follow-up draft or unlocked Unknown");
+            panel.Close();panel=new FloatingPanelWindow(this,sendCodex:(request,_,token)=>Send("Codex",request,token),sendAgent:(request,_,token)=>Send("Agent",request,token),conversationDirectory:storage);Panel=panel;panel.Open();
+            panel.SelectConversationForDiagnostic(second);
+            Check(!panel.CanSendFromComposer,"Restart unlocked an Unknown text follow-up");
+            panel.PromptText="busy fixture";panel.ComposerModeSelector.SelectedIndex=1;
+            await Task.Delay(30);
+            Check(!panel.CanSendFromComposer,"Restart unlocked the original image prompt as a duplicate text turn");
+            panel.PromptText="restored text follow-up";await Task.Delay(30);await InvokeSend();
+            Check(requests.Count==12&&requests[^1].Request.Png.Length==0,"Restored second conversation cannot send a new text-only follow-up");
+            await panel.PresentAsync(image,new(0,0,320,200));await InvokeSend();
+            Check(requests.Count==13&&requests[^1].Request.Png.SequenceEqual(image),"A new capture did not unlock screenshot sending after a text follow-up");
+            panel.NewConversation();panel.ComposerModeSelector.SelectedIndex=1;panel.PromptText="fresh text-only tab";await Task.Delay(30);
+            Check(panel.CurrentImage.Length>0,"New screenshot was not adopted by a new tab");
+            panel.Close();panel=new FloatingPanelWindow(this,sendCodex:(request,_,token)=>Send("Codex",request,token),sendAgent:(request,_,token)=>Send("Agent",request,token),conversationDirectory:storage);Panel=panel;panel.Open();
+            panel.NewConversation();panel.PromptText="fresh text-only tab";await Task.Delay(180);
+            Check(panel.CurrentImage.Length==0&&panel.CanSendFromComposer,"A new text-only tab without a capture cannot send its prompt");
+            await InvokeSend();
+            Check(requests.Count==14&&requests[^1].Request.Png.Length==0&&requests[^1].Request.Prompt=="fresh text-only tab","A new text-only tab submitted the wrong content");
+            root=(FrameworkElement)panel.Content;root.UpdateLayout();
             await File.WriteAllBytesAsync(Path.Combine(output,"composer-compact.png"),await RuntimeDiagnostics.RenderAsync(root));
-            string result=$"PASS: {checks} compact composer assertions; removed screenshot row, preserved prompt/mode/Send, native Enter newline and scoped Ctrl+Enter for text/image/default prompt, selected Agent/Codex, current tab, Sent/Unknown locks and repeated busy input.\nOnly generated fixtures and injected senders; keyboard injection is restricted to this foreground test HWND; no user content, clipboard, desktop screenshot or real model request.\n";
+            string result=$"PASS: {checks} compact composer assertions; removed screenshot row, preserved prompt/mode/Send, native Enter newline and scoped Ctrl+Enter for text/image/default prompt, selected Agent/Codex, current tab, Sent/Unknown locks and repeated busy input; second/third/restored tab text follow-ups via native Send and Ctrl+Enter, history image retained without duplicate attachments, whitespace/unchanged/Unknown locks, Failed retry and new captures.\nOnly generated fixtures and injected senders; keyboard injection is restricted to this foreground test HWND; no user content, clipboard, desktop screenshot or real model request.\n";
             await File.WriteAllTextAsync(Path.Combine(output,"composer-test.txt"),result);return result;
         }
         finally{gate.TrySetResult();panel?.Close();Panel=previous;ApplyAppearance(appearance);if(foreground!=0)Native.SetForegroundWindow(foreground);}

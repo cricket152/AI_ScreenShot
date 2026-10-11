@@ -831,20 +831,22 @@ internal sealed partial class FloatingPanelWindow : Window
             scroll.UpdateLayout();ScrollMessageToBottom();
         });
     }
-    private bool CanSendTo(string target)=>!busy&&(png.Length>0?!submittedTargets.Contains(target):
+    private bool HasUnsubmittedCapture(string target)=>png.Length>0&&!submittedTargets.Contains(target);
+    private bool CanSendTo(string target)=>!busy&&(HasUnsubmittedCapture(target)||
         !string.IsNullOrWhiteSpace(prompt.Text)&&!submittedTextPrompts.Contains((target,prompt.Text.Trim())));
     private void MarkSubmitted(string target,SendRequest request,ConversationView? destination=null)
     {
         var view=destination??current;
         if(request.Png.Length>0)view.submittedTargets.Add(target);
-        else view.submittedTextPrompts.Add((target,request.Prompt.Trim()));
+        // An image's unchanged prompt must not become an implicit duplicate text turn.
+        view.submittedTextPrompts.Add((target,request.EffectivePrompt.Trim()));
     }
     private void UpdateButtons()
     {
         ApplyLatestCapture(current);
         codex.IsEnabled=CanSendTo("Codex");agent.IsEnabled=CanSendTo("Agent");
         send.IsEnabled=ComposerTarget=="Agent"?agent.IsEnabled:codex.IsEnabled;composerMode.IsEnabled=!busy;
-        Label(send,(png.Length>0?"发送截图和提示词到 ":"发送提示词到 ")+ComposerTarget+"（Ctrl+Enter）");UpdateLayoutDimensions();
+        Label(send,(HasUnsubmittedCapture(ComposerTarget)?"发送截图和提示词到 ":"发送提示词到 ")+ComposerTarget+"（Ctrl+Enter）");UpdateLayoutDimensions();
         copy.IsEnabled=save.IsEnabled=!busy&&png.Length>0;more.IsEnabled=workspace.IsEnabled=prompt.IsEnabled=!busy;
     }
     private Task SendFromComposerAsync(ConversationView view)
@@ -876,8 +878,8 @@ internal sealed partial class FloatingPanelWindow : Window
         view.busy=true;if(ReferenceEquals(view,current))UpdateButtons();RenderTabs();SendStatus("正在发送到 "+target,true);
         view.stopWaiting.IsEnabled=true;view.stopWaiting.Visibility=Visibility.Visible;
         UpdateLayoutDimensions();
-        var request=new SendRequest(view.png,view.prompt.Text,view.Data.Workspace,app.Settings.DefaultPrompt){Conversation=new ConversationContext{ThreadId=view.Data.ThreadId,History=AgentHistory(view),SessionChanged=(thread,turn)=>SaveSession(view,thread,turn)}};
-        var userRecord=new ConversationMessage{Role="user",Client=target,Text=request.EffectivePrompt,Image=view.Data.DraftImage};
+        var request=new SendRequest(HasUnsubmittedCapture(target)?view.png:[],view.prompt.Text,view.Data.Workspace,app.Settings.DefaultPrompt){Conversation=new ConversationContext{ThreadId=view.Data.ThreadId,History=AgentHistory(view),SessionChanged=(thread,turn)=>SaveSession(view,thread,turn)}};
+        var userRecord=new ConversationMessage{Role="user",Client=target,Text=request.EffectivePrompt,Image=request.Png.Length>0?view.Data.DraftImage:null};
         var replyRecord=new ConversationMessage{Role="assistant",Client=target};
         view.Data.Messages.Add(userRecord);view.Data.Messages.Add(replyRecord);Persist(view);
         var response=CreateResponseView("正在发送…");

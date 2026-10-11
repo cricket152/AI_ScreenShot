@@ -28,6 +28,8 @@ Windows 11 x64 原生托盘截图工具。`.NET 10 + WinUI 3 + Windows App SDK +
 
 不截图也可发送：展开消息面板，输入非空提示词，选择 Codex / Agent 后点击“发送”，工具栏目标按钮也使用同一规则。请求中不会附加空图片或占位图，用户气泡只显示文本；只有空白的无截图输入不能发送。Codex 仍需选择工作目录；Agent 不需要 Codex 目录。输入不同的新提示词可以再次发送，当前对话中已提交或结果未知的相同提示词仍按目标防重复提交，切换模式不解除锁定。后续消息会延续当前对话：Codex 通过公开 thread/resume 恢复自身上下文；Agent 使用此对话内已完成的 Agent 消息历史（包括历史截图），不同标签及不同客户端的上下文隔离。
 
+截图已提交到当前目标后，输入新的提示词即可继续文字追问，发送按钮和 `Ctrl+Enter` 均可使用；追问不重复附带旧截图，图片仍保留在原消息和草稿中。另一个尚未提交图片的目标仍可发送该图，新截图会重新启用图片发送。原截图的未修改提示词和已提交/Unknown 的文字仍受防重发保护，切换标签及重启保持一致。
+
 设置页的“默认提示词”支持多行内容；有截图时用户输入的非空提示词优先，输入留空或只有空白时使用该配置。默认值为“请描述并分析这张截图”，将设置留空时也恢复此值；Codex、Agent 和“复制提示词”使用同一规则。消息标题栏选择已配置的 Codex 工作目录，工具栏 Codex 或输入框旁的“发送”按钮发送。两端独立反馈。已提交或结果未知的目标对当前图片不允许再次发送；新截图会重置该图片限制。发送和等待回复期间禁用会改变当前任务的操作，消息栏目中的停止按钮在 Codex provider 模式请求中断当前生成，Agent 模式停止本地读取；两端均不重发。
 
 ## 对话标签与本地记忆
@@ -112,12 +114,12 @@ SDK 已放置在 `.tools/dotnet`。没有该目录时安装 .NET 10 SDK。首次
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\verify.ps1
-powershell -ExecutionPolicy Bypass -File .\scripts\publish.ps1 -OutputDirectory .\dist\AIScreenShot-win-x64-composer-v1
+powershell -ExecutionPolicy Bypass -File .\scripts\publish.ps1 -OutputDirectory .\dist\AIScreenShot-win-x64-followup-v1
 ```
 
-上述发布命令输出为 `dist/AIScreenShot-win-x64-composer-v1`。发布脚本拒绝混入仍有旧桥接文件的目录，请使用新的输出目录。SDK 构建、协议测试、真实桌面联调的实际结果见 `PROJECT_STATUS.md`，不能将构建成功视为两端发送成功。
+上述发布命令输出为 `dist/AIScreenShot-win-x64-followup-v1`。发布脚本拒绝混入仍有旧桥接文件的目录，请使用新的输出目录。SDK 构建、协议测试、真实桌面联调的实际结果见 `PROJECT_STATUS.md`，不能将构建成功视为两端发送成功。
 
-新版便携包为 `dist/AIScreenShot-win-x64-composer-v1`，移除输入区截图行并默认支持 `Ctrl+Enter` 发送，包含 motion-v2 原生动效和此前全屏阅读、输入折叠、数学渲染、跨段选择/复制、截图跨工作区发送、多标签并行会话和 SQLite 本地记忆。验证记录见 PROJECT_STATUS.md。请先从托盘退出旧实例，再启动新版，避免单实例锁使旧版继续响应快捷键；真实服务与混合 DPI 多屏仍需桌面验收。
+新版便携包为 `dist/AIScreenShot-win-x64-followup-v1`，修复截图发送后其他标签的文字追问按钮禁用，包含 composer-v1 紧凑输入区/Ctrl+Enter、motion-v2 原生动效和此前全屏阅读、输入折叠、数学渲染、跨段选择/复制、截图跨工作区发送、多标签并行会话和 SQLite 本地记忆。验证记录见 PROJECT_STATUS.md。请先从托盘退出旧实例，再启动新版，避免单实例锁使旧版继续响应快捷键；真实服务与混合 DPI 多屏仍需桌面验收。
 
 已确认程序图标见 [图标设计说明](docs/icon-candidates/README.md)，采用截图取景框和 AI 星芒。多尺寸 ICO 用于可执行文件、窗口/任务栏和托盘，同设计 PNG 用于悬浮入口。
 
@@ -129,7 +131,7 @@ Provider 连接专项诊断：`ScreenShot.App.exe --codex-provider-test` 检查�
 
 截图跨对话专项：`ScreenShot.App.exe --startup-test --capture-routing-test` 使用生成 PNG、临时数据库和注入发送器，验证截图后切换/新建/重开标签、不同工作目录、原生发送按钮、提示词保留、防重发/失败重试、后台请求快照、解码竞态与重启恢复；报告与样例为 `diagnostics/capture-routing-test.txt`、`capture-routing.png`。完整 `--floating-ui-test` 同样执行，不截取桌面、操作用户剪贴板或请求真实模型。
 
-紧凑输入区专项：`ScreenShot.App.exe --startup-test --composer-test` 检查截图行移除及高度释放，并在测试 HWND 获得前台焦点后注入真实按键，验证 Enter 换行、Ctrl+Enter 发送文字/截图/默认提示词、所选 Codex / Agent 模式、当前标签和 Sent/Unknown/忙碌防重发。报告与生成图为 `diagnostics/composer-test.txt`、`composer-compact.png`；仅使用生成 PNG、专用数据库和注入发送器，不操作用户内容、剪贴板或真实模型。
+紧凑输入区专项：`ScreenShot.App.exe --startup-test --composer-test` 检查截图行移除及高度释放，并在测试 HWND 获得前台焦点后注入真实按键，验证 Enter 换行、Ctrl+Enter 发送文字/截图/默认提示词、所选 Codex / Agent 模式、当前标签和 Sent/Unknown/忙碌防重发。另通过原生发送按钮及 Ctrl+Enter 检查第二/第三标签截图后的文字追问、历史图片保留而新消息不重复附图、空白/原提示词保护、失败重试、切换/重启和新截图恢复发送，以及新建无图标签的纯文本发送。报告与生成图为 `diagnostics/composer-test.txt`、`composer-compact.png`；仅使用生成 PNG、专用数据库和注入发送器，不操作用户内容、剪贴板或真实模型。
 
 全屏/输入折叠专项：`ScreenShot.App.exe --startup-test --reading-mode-test` 使用临时数据库和生成图，通过原生图标 Invoke 检查当前显示器全屏、标签置顶、尺寸及工具栏恢复、全屏禁用拖动/缩放/球跟随、操作隐藏恢复、向下淡出/快速反向/关闭动画、跨标签草稿与截图保留、新截图展开输入和收起重开。结果写入 `diagnostics/startup-test.txt` 与 `reading-*.png`；完整 `--floating-ui-test` 同样执行，不操作用户数据或请求模型。生成图片不包含系统 backdrop，深色预览存在已知的 RenderTargetBitmap 白块问题，不能代替桌面观感验收。
 

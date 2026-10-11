@@ -67,8 +67,8 @@ internal sealed partial class FloatingPanelWindow
                 if(record.Role=="assistant")view.latestResponse=text;
                 if(record.Role=="user"&&record.State is "Sent" or "Unknown")
                 {
-                    if(record.Image==null)view.submittedTextPrompts.Add((record.Client,record.Text.Trim()));
-                    else if(record.Image==view.Data.DraftImage)view.submittedTargets.Add(record.Client);
+                    view.submittedTextPrompts.Add((record.Client,record.Text.Trim()));
+                    if(record.Image!=null&&record.Image==view.Data.DraftImage)view.submittedTargets.Add(record.Client);
                 }
             }
             view.empty.Visibility=view.Data.Messages.Count==0?Visibility.Visible:Visibility.Collapsed;

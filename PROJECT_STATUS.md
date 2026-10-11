@@ -1,6 +1,9 @@
 # 项目状态
 
 ## 已完成
+- 本次 Git 提交仅包含文字追问修复、恢复锁、35 项原生输入回归与相关文档，共 6 个文件；本地存储代码和文档独立保留为未提交修改。导出暂存内容后独立运行 scripts/verify.ps1：构建 0 warning / 0 error，974 项断言通过；首次既有 Codex 完成/取消竞态用例超时，未修改该用例，重跑通过。暂存树发布包 --startup-test --composer-test --capture-routing-test exit 0；git diff --cached --check 通过，未提交发布包/用户数据或推送远端。
+- 2026-10-11 修复第二个及后续对话截图发送后文字追问按钮禁用：原判断只要草稿有 PNG 就按图片 Sent/Unknown 锁禁用整个目标，忽略新提示词。FloatingPanelWindow 统一区分尚未提交的图片与新的文字追问，按钮/工具栏/Ctrl+Enter 同步；已提交图片的后续文字请求不附旧 PNG，新用户记录 Image=null，保留原历史和草稿图片。图片原有效提示词也记录文字防重发，恢复对话同步重建，避免未修改的原提示词自动变成文字重发；其他目标仍可发送未提交图片，新截图重置图片限制，无新增依赖，不改 UI 布局或既有本地存储改动。
+- 追问修复验证：scripts/verify.ps1 通过（0 warning / 0 error，991 项断言）；新增 21 项原生输入回归，共 35 项，覆盖第二/第三标签实际 Send Invoke 与 Ctrl+Enter、新文字不附旧图而历史保留图片、空白/原提示词/Sent/Unknown 防重发、Failed 重试、目标隔离、切换/重启、新截图及全新无图标签发送。使用旧发送判断运行同一用例，明确在第二标签新提示词启用检查失败；恢复修复后 dist/AIScreenShot-win-x64-followup-v1 的 --startup-test --composer-test --capture-routing-test --storage-test --reading-mode-test --animation-test --conversation-appearance-test --conversation-history-test 和完整 --floating-ui-test 均 exit 0，包含并发任务/流式/取消/存储/51 项动效回归。App/Core DLL 与最终构建 SHA256 相同，git diff --check 通过。只使用生成图片、专用 SQLite 和注入发送器，不操作用户内容、剪贴板、截图或真实模型；本次修复按用户授权提交到本地 Git，本地存储功能独立留在工作区，不推送远端。
 - 2026-10-11 按用户截图精简消息输入区：移除当前截图缩略图/尺寸与“截取屏幕”整行，仅保留原有提示词输入框、发送按钮和 Codex / Agent 模式选择，释放阅读高度，保持卡片/材质/圆角及折叠箭头。当前截图仍按原逻辑保存在各标签草稿、最新截图快照和发送后的用户气泡中，未改变截图入口或会话业务。默认 Ctrl+Enter 在输入区发送当前图片和有效提示词，普通 Enter 换行；按钮与按键共用带当前标签/可见性/忙碌/防重发检查的入口。使用 PreviewKeyDown 处理多行 TextBox 的按键优先级，并覆盖折叠箭头，避免发送时输入框禁用后的焦点迁移导致连续 Ctrl+Enter 错误折叠；UIA 和悬停提示说明快捷键，无新增依赖。
 - 紧凑输入区验证：scripts/verify.ps1 通过（0 warning / 0 error，974 项断言）；dist/AIScreenShot-win-x64-composer-v1 的 --startup-test --composer-test --capture-routing-test --reading-mode-test --animation-test --conversation-appearance-test 组合及完整 --floating-ui-test 均 exit 0。新增 14 项原生输入区检查，包括实际前台 HWND 内 Enter 换行、Ctrl+Enter 文本/截图/默认提示词发送、Agent/Codex 选择、当前标签、Sent/Unknown/忙碌防重发、快速重复按键不折叠、作用域隔离及控件树/高度释放；51 项动效、截图传递、全屏/输入折叠与会话外观回归通过。App/Core DLL 与最终构建 SHA256 相同，git diff --check 通过。仅生成 PNG、专用 SQLite 和注入发送器，不使用用户内容、剪贴板、桌面截图或真实模型请求。发布包保留之前 motion-v2 功能，未 commit/push。
 - 2026-10-11 新增并优化可配置原生动效系统：AnimationSettings / MotionProfile / AnimationService 统一五种预设（关闭、简约、丝滑默认、弹性、灵动）、50%–200% 速度、全局及工具栏/消息面板/标签/消息四个局部开关，兼容旧 EnableAnimations 和现有 System.Text.Json 配置。弹性缩放/位移阻尼分别 0.62/0.67，独立周期 60ms（反馈 50ms）随倍率缩放，形成微小回弹。工具栏与消息面板沿用同一透明 HWND；简约关闭保留布局至淡出完成，打开前以零透明度预备完整阴影，外层 Storyboard 透明度统一驱动正文与独立阴影 HWND，内部 Composition 不再叠加淡化。过渡期间 Rendering 同步阴影，共同淡化复用模糊蒙版和 GDI 缓冲区，透明度更新不移动窗口；完成/中断/关闭解绑并释放。系统动画偏好变化或配置切换立即收尾，动画异常恢复最终状态，阴影 Win32 失败有 fallback 计数并隐藏阴影而不阻止正文。
@@ -49,6 +52,7 @@
 - 旧 NativeHost 仅剩被 .gitignore 排除的 bin/obj，此前递归清理被工具自动审批拒绝，未执行删除；旧 dist 包保留，不视为当前版本。源码及新包无官网组件。
 
 ## 最近修改文件
+- 文字追问修复：src/ScreenShot.App/FloatingPanelWindow.cs（发送判断/附件/提示/防重发）、FloatingPanelConversations.cs（恢复锁）；原生回归：ComposerDiagnostics.cs；README.md、docs/UI_DESIGN.md、PROJECT_STATUS.md 同步。
 - 紧凑输入区/快捷键：src/ScreenShot.App/FloatingPanelWindow.cs、FloatingPanelConversations.cs、FloatingPanelReadingMode.cs；原生专项/回归：ComposerDiagnostics.cs、StartupDiagnostics.cs、ConversationDiagnostics.cs、ReadingModeDiagnostics.cs、AnimationDiagnostics.cs；README.md、docs/UI_DESIGN.md、PROJECT_STATUS.md 同步。
 - 动效策略/配置：src/ScreenShot.Core/AnimationSettings.cs、PanelAppearance.cs；运行服务：src/ScreenShot.App/AnimationService.cs、UiTransition.cs、App.xaml.cs；组件接入：FloatingPanelWindow.cs、FloatingPanelReadingMode.cs、FloatingPanelConversations.cs、FloatingBallWindow.cs、ToolbarWindow.cs、SettingsWindow.cs；阴影同步/缓存：PanelGeometry.cs、PanelShadowWindow.cs、Native.cs；原生检查：AnimationDiagnostics.cs、StartupDiagnostics.cs、RuntimeDiagnostics.cs；配置回归：tests/ScreenShot.Tests/AppearanceTests.cs；README.md、docs/UI_DESIGN.md、PROJECT_STATUS.md 同步。
 - 全屏/折叠：src/ScreenShot.App/FloatingPanelReadingMode.cs、FloatingPanelWindow.cs、FloatingPanelPlacement.cs、FloatingPanelConversations.cs、PanelResizeController.cs、App.xaml、App.xaml.cs；专项：ReadingModeDiagnostics.cs、StartupDiagnostics.cs；README.md、docs/UI_DESIGN.md、PROJECT_STATUS.md 同步。
@@ -61,6 +65,7 @@
 - 文档：README.md、docs/UI_DESIGN.md、THIRD_PARTY_NOTICES.md、PROJECT_STATUS.md。之前清理的 CodexConversation.cs、Native.cs 修改保留。
 
 ## 已确认设计决策
+- 图片防重发按标签/目标限制附件，不阻止该目标发送新的文字追问。已提交截图保留草稿/历史供复制、另存和上下文使用，新文字消息不重复保存图片引用；原图片有效提示词及已提交/Unknown 的文字按现有规则防重发，失败可重试，不自动重发。新图片及另一个未提交目标仍可发图，恢复历史采用相同判断，不新增草稿图片删除入口。
 - 2026-10-11 用户授权先将此前原生动效系统、独立动效栏目、阴影同步与紧凑输入区/Ctrl+Enter 发送、相关诊断和文档提交到本地 Git，再实现本地存储卡片；不推送远端，发布包/用户数据/日志/密钥不纳入提交。
 - 用户要求只移除输入区红框内的当前截图预览和截取屏幕按钮，保留输入框、发送及模式选择。Ctrl+Enter 是输入区发送快捷键，使用当前所选模式和截图/提示词；Enter 继续换行，不改全局截图快捷键。不扩大输入区改版范围，不增加附件删除业务，截图草稿/跨标签传递/防重发及消息气泡预览保留。参考 Astryx Button 的短标签、tooltip 和可访问快捷键约定及 Microsoft 官方键盘事件顺序，继续使用原生 WinUI，无新增依赖。
 - 原生动效统一在 App 生命周期服务与窗口 scope 中管理，使用 Microsoft.UI.Composition + WinUI Storyboard，未引入 Web/Astryx 依赖或重做控件模板；参考 Astryx AppShell 的导航/标题分工与 Slider 的可访问交互约定，以及 Microsoft 官方 spring 的周期/阻尼建议。弹性进场/反馈使用 spring，退出短缓动以及时释放标签位置；两栏共用 HWND，内部视觉动效不更改真实相对位置。预设/倍率/局部开关仍放 PanelAppearance.Motion，保留旧全局开关；独立动效栏目只保存动效，外观栏目只保存非动效设置，两栏目均保持即时预览、导航草稿与关闭撤销。原生控件保留默认 VisualState / ThemeTransition；诊断 JSON 写入生成样本目录，不写用户 settings.json。
@@ -79,6 +84,6 @@
 - 沿用 .tools/dotnet、scripts/verify.ps1 和 scripts/publish.ps1；未经明确要求不 commit/push。2026-10-09 用户授权将累计的多会话/本地记忆、启动修复、界面调整和历史删除/重命名修复提交到本地 Git；不包含发布包、数据库、截图、日志或密钥，未推送远端。f5e245e 为此前用户授权的本地提交。
 
 ## 后续计划
-- 最新包为 dist/AIScreenShot-win-x64-composer-v1，包含 motion-v2；用户退出旧版后验收紧凑输入区、Ctrl+Enter 发送与 Enter 换行。继续在独立“动效设置”栏目验收微小弹性回弹、简约关闭淡出/阴影同步、速度/局部开关、即时预览、独立保存/重启及关闭未保存草稿回退，以及连续显隐、快速关闭/新建/切换/拖动排序、并发模型回复与流式滚动、混合 DPI 拖动、截图及全屏阅读；不强制结束旧实例。
+- 最新包为 dist/AIScreenShot-win-x64-followup-v1，包含 composer-v1/motion-v2；本地工作区发布包另包含未提交的 storage-v1；用户退出旧版后重点验收第二及后续标签截图发送后继续文字追问、按钮/Ctrl+Enter 和重启恢复。常规页继续验收本地存储统计、打开文件夹及确认清理，保留其他对话和草稿中的图片；继续验收紧凑输入区/Enter 换行、独立动效栏目中的微小弹性回弹、简约淡出/阴影同步、速度/开关/预览/独立保存回退、连续显隐/标签操作、并发回复/流式滚动、混合 DPI 拖动、截图及全屏阅读；不强制结束旧实例。
 - 动效包包含此前 reading-v2 的全屏/新建/历史及输入区箭头透明无描边外观、数学排版与截图传递修复；继续验收图标、截图→切换/新建对话→选择目标工作区→真实发送，以及数学排版、跨段选择与复制图标、停止/关闭重开/重启恢复、历史重命名/删除、标签溢出/主题色、球与栏对齐及真实服务恢复。
 - 与用户讨论 Agent 应用场景和工具扩展；暂不增加长期知识库或跨会话共享，先保持基础会话隔离和稳定恢复。
