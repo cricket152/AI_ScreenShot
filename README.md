@@ -32,6 +32,12 @@ Windows 11 x64 原生托盘截图工具。`.NET 10 + WinUI 3 + Windows App SDK +
 
 ## 对话标签与本地记忆
 
+标签栏右侧、“＋”之前的小全屏图标可让消息栏填满当前显示器：工具栏和悬浮球暂时隐藏，标签置顶、对话内容铺满下方。再次点击图标或按 `Esc` 恢复原窗口位置、尺寸和工具栏状态。全屏内仍可切换/新建对话、查看历史和截图，发送与后台生成保持原流程。
+
+输入区上沿中央的小箭头可收起截图预览、提示词及发送控件：180ms 向下移动并淡出，完成后让出阅读空间；向上箭头保留，点击即可展开。截图和各标签的草稿保留，阅读折叠状态在本次面板内共享，重启默认展开；新截图完成后自动展开输入区。关闭应用或 Windows 的动画开关时直接切换。
+
+全屏、新建、历史及输入区上下箭头均采用透明背景、无描边的小图标，保留点击区域和悬停提示。
+
 消息栏顶部提供紧凑水平标签和“＋”按钮（`Ctrl+T`），在同一窗口新建、切换对话；标签较多时可横向滚动，方向键、Home/End 可切换标签。新标签继承当前标签的工作区和发送模式，随后独立保存工作区、草稿、截图、消息、发送任务与取消状态。不同标签可同时生成回复；“停止等待”只针对当前标签。关闭标签保留历史与正在运行的任务，重新打开后可继续查看结果。关闭整个面板或退出应用会停止本工具的所有等待，未确认任务重启后不自动重发。
 
 新对话使用默认标题，第一条完整回复后通过当前客户端异步生成短标题；这是一次独立的标题请求，不加入用户对话上下文。右键标签可手动重命名，保存按钮和输入框聚焦描边跟随当前主题色；手动标题不会被迟到的自动标题覆盖。标签右侧的历史按钮可切换到已打开的对话、重新打开已关闭对话，或确认彻底删除本应用保存的对话与截图。删除确认在同一个历史弹窗内完成；取消返回列表，删除成功后立即刷新列表，运行中对话不能删除；Codex 原生历史仍由 Codex 管理。
@@ -100,12 +106,12 @@ SDK 已放置在 `.tools/dotnet`。没有该目录时安装 .NET 10 SDK。首次
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\verify.ps1
-powershell -ExecutionPolicy Bypass -File .\scripts\publish.ps1 -OutputDirectory .\dist\AIScreenShot-win-x64-conversations-v3
+powershell -ExecutionPolicy Bypass -File .\scripts\publish.ps1 -OutputDirectory .\dist\AIScreenShot-win-x64-reading-v2
 ```
 
-上述发布命令输出为 `dist/AIScreenShot-win-x64-conversations-v3`。发布脚本拒绝混入仍有旧桥接文件的目录，请使用新的输出目录。SDK 构建、协议测试、真实桌面联调的实际结果见 `PROJECT_STATUS.md`，不能将构建成功视为两端发送成功。
+上述发布命令输出为 `dist/AIScreenShot-win-x64-reading-v2`。发布脚本拒绝混入仍有旧桥接文件的目录，请使用新的输出目录。SDK 构建、协议测试、真实桌面联调的实际结果见 `PROJECT_STATUS.md`，不能将构建成功视为两端发送成功。
 
-新版便携包为 `dist/AIScreenShot-win-x64-conversations-v3`，修复历史对话的删除交互并同步重命名弹窗主题色；支持多标签并行会话、SQLite 本地记忆、原生 Codex 会话恢复、Agent 历史上下文、悬浮球对齐联动和标签溢出滚动，保留纯提示词发送、回复模型标记与 Codex 生成中断。材质、主题描边与阴影继续使用共同外缘，保留外观配置及过渡。验证记录见 PROJECT_STATUS.md。请先从托盘退出旧实例，再启动新版，避免单实例锁使旧版继续响应快捷键；真实服务与混合 DPI 多屏仍需桌面验收。
+新版便携包为 `dist/AIScreenShot-win-x64-reading-v2`，统一全屏/新建/历史及输入区箭头的透明图标外观，保留全屏阅读、输入折叠、数学渲染、跨段选择/复制、截图跨工作区发送、多标签并行会话和 SQLite 本地记忆。验证记录见 PROJECT_STATUS.md。请先从托盘退出旧实例，再启动新版，避免单实例锁使旧版继续响应快捷键；真实服务与混合 DPI 多屏仍需桌面验收。
 
 已确认程序图标见 [图标设计说明](docs/icon-candidates/README.md)，采用截图取景框和 AI 星芒。多尺寸 ICO 用于可执行文件、窗口/任务栏和托盘，同设计 PNG 用于悬浮入口。
 
@@ -116,6 +122,8 @@ Provider 连接专项诊断：`ScreenShot.App.exe --codex-provider-test` 检查�
 数学渲染专项：`ScreenShot.App.exe --startup-test --math-render-test` 用生成样例检查明暗主题、公式/专业符号/中文术语、窄窗口显示、跨公式选择、无损全文复制、流式完整/未完成公式以及绘图/未知语法回退；生成图片与报告位于 `diagnostics/math-render-*.png`、`math-render-test.txt`。可与 `--message-selection-test` 合用，完整 `--floating-ui-test` 也会执行。自测不读写用户剪贴板、用户历史或请求模型。
 
 截图跨对话专项：`ScreenShot.App.exe --startup-test --capture-routing-test` 使用生成 PNG、临时数据库和注入发送器，验证截图后切换/新建/重开标签、不同工作目录、原生发送按钮、提示词保留、防重发/失败重试、后台请求快照、解码竞态与重启恢复；报告与样例为 `diagnostics/capture-routing-test.txt`、`capture-routing.png`。完整 `--floating-ui-test` 同样执行，不截取桌面、操作用户剪贴板或请求真实模型。
+
+全屏/输入折叠专项：`ScreenShot.App.exe --startup-test --reading-mode-test` 使用临时数据库和生成图，通过原生图标 Invoke 检查当前显示器全屏、标签置顶、尺寸及工具栏恢复、全屏禁用拖动/缩放/球跟随、操作隐藏恢复、向下淡出/快速反向/关闭动画、跨标签草稿与截图保留、新截图展开输入和收起重开。结果写入 `diagnostics/startup-test.txt` 与 `reading-*.png`；完整 `--floating-ui-test` 同样执行，不操作用户数据或请求模型。生成图片不包含系统 backdrop，深色预览存在已知的 RenderTargetBitmap 白块问题，不能代替桌面观感验收。
 
 历史恢复冷启动诊断：`ScreenShot.App.exe --startup-test` 使用独立 Mutex 和临时 SQLite 测试数据，在没有悬浮球的情况下先创建透明消息面板，检查标签、选中状态、草稿、历史回复及窗口显隐。结果位于发布目录 `diagnostics/startup-test.txt`，不读取用户历史或发送模型请求。正常启动在创建任何 backdrop 前初始化 Windows.System 消息队列；启动阶段与异常类型/HRESULT/调用栈保存在 `%LOCALAPPDATA%\AIScreenShot\diagnostics\startup.log`，不记录配置或消息内容。
 

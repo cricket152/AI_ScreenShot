@@ -122,6 +122,11 @@ DeskBox 的 [WindowShadowSettingsContractTests](https://github.com/Tianyu199509/
 
 ## 对话标签、记忆和悬浮球联系
 
+- 全屏/新建/历史三个图标统一使用 28px 透明背景、无描边的原生按钮样式，取消常驻白色圆角底板；输入区上下箭头同样继承透明背景、无描边，保留 40×20px 点击区域、悬停/按下反馈、tooltip 与键盘焦点。
+- 标签栏右侧在“＋”之前提供 14px 全屏图标、28px 原生按钮，使用 tooltip 和明确可访问名称；参考 Astryx IconButton 的紧凑、无文字、轻背景及键盘焦点约定。字形使用 [Segoe Fluent Icons](https://learn.microsoft.com/en-us/windows/apps/design/style/segoe-fluent-icons-font) 的 FullScreen / BackToWindow。进入后保留原生无边框 presenter，用当前显示器物理 Monitor bounds 填满屏幕；透明宿主外边距、消息材质/描边圆角归零，工具栏/阴影/悬浮球暂时隐藏，标签位于顶部，消息行使用 Star、消息高度 Auto。禁用原生 grips、空白拖动和球跟随，保持输入、标签、历史与后台任务可用。退出图标或 Esc 恢复原位置/尺寸和两栏显隐，按原偏好恢复悬浮球；截图/操作临时隐藏后仍恢复全屏。阅读模式不写入对话数据库，收起面板先退出全屏。
+- 输入 Surface 上沿中央覆盖 40×20px 小型箭头按钮，12px ChevronDown / ChevronUp；折叠箭头留在 Surface 外，完成后仍可展开。使用独立 UiTransition 对 Opacity 和 TranslateTransform.Y 作 180ms CubicEase/EaseOut，从 0 移到 20px 并淡出后 Visibility.Collapsed；展开沿相反路径。参考 emil-design-eng 的短时 transform/opacity 动效及从当前值反向原则，复用项目 motion token，遵循应用和 Windows 动画开关。动画期间输入控件停止接收操作，若输入持有焦点则移到箭头；Clip 限定输入区绘制，完成后释放行高。折叠状态本次面板共享，各标签草稿/截图仍独立，切换前提交旧动画目标，切换后同步状态；新截图完成立即展开输入，停止等待入口仍在消息标题中。未新增依赖。
+- `--startup-test --reading-mode-test` 及完整悬浮诊断用生成图片、临时 SQLite 和原生 ButtonAutomationPeer Invoke 检查全屏/恢复/禁用浮动手势、输入动效快速反向、释放阅读空间、跨标签和关闭动画；输出明暗生成图及报告，不读取桌面/用户数据库/剪贴板或发送请求。
+
 - 消息 Surface 顶部是原生水平标签栏；短标题、明确选中态、方向键/Home/End 导航、水平滚动和显式关闭按钮参考 Astryx TabList 约定。每个标签宽 132 逻辑像素，原生 ToggleButton 的选中/悬停/按下背景和文字使用窗口范围的强调色资源；“＋”和历史按钮固定在栏右侧，不生成独立聊天窗口。溢出时下方显示 10px 原生 ScrollBar，保留原生 Thumb/轨道行为；不依赖悬停显现，参考 Astryx ScrollableArea 的可见溢出入口约定。新建/切换时滚入选中标签，后台进度刷新不抢走用户滚动位置。关闭提示明确保留历史与后台任务。
 - 各标签保留独立 Grid、草稿、截图、回复控件、工作区、任务和 CancellationTokenSource。工作区/模式仅在新建时继承，后续独立；后台流式回调更新自己的控件，不滚动当前其他标签。发送和停止操作只针对当前标签。
 - 最新截图在面板内保存为共享的只读 PNG/预览快照，切换/新建/重开标签时，空闲目标标签只接入一次新截图，更新缩略图与发送条件，保留自己的提示词和工作区/模式。截图解码使用面板级版本，切换标签不丢失结果，也不让迟到旧结果替换新图。发送中的标签延迟接入新截图，已有请求和历史图片不被替换；同一标签对同一截图的 Sent/Unknown 锁不会因重复切换清除。各标签接入后独立持久化其草稿，不共享消息或原生 thread ID。`--startup-test --capture-routing-test` 和完整悬浮诊断用生成图片与原生 Invoke 验证这些行为。

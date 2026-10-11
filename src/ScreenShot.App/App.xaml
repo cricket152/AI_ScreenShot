@@ -79,6 +79,13 @@
                 <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
                 <Setter Property="CornerRadius" Value="{StaticResource SS.Corner.Control}" />
             </Style>
+            <Style x:Key="SS.ComposerToggleButtonStyle" TargetType="Button" BasedOn="{StaticResource SS.MessageCopyButtonStyle}">
+                <Setter Property="Width" Value="40" />
+                <Setter Property="Height" Value="20" />
+                <Setter Property="MinWidth" Value="40" />
+                <Setter Property="MinHeight" Value="20" />
+                <Setter Property="Padding" Value="4,0" />
+            </Style>
             <Style x:Key="SS.PrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource AccentButtonStyle}">
                 <Setter Property="MinHeight" Value="{StaticResource SS.ControlHeight}" />
                 <Setter Property="FontSize" Value="{StaticResource SS.Typography.Body}" />

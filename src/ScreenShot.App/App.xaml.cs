@@ -239,6 +239,7 @@ public partial class App : Application
             composerChecks+=await VerifyTextOnlyComposerAsync();
             composerChecks+=await VerifyConcurrentConversationsAsync();
             composerChecks+=await VerifyCaptureRoutingAsync(output);
+            composerChecks+=await VerifyReadingModeAsync(output);
             await File.WriteAllTextAsync(Path.Combine(output,"floating-ui-test.txt"),"PASS: 52 logical pixel native ball, panel creation, empty state and Light/Dark generated previews\nPASS: ball toggles both panels; toolbar arrow collapses independently and restores\nPASS: shared toolbar/message width alignment through production resize callbacks; monitor bounds retained\nPASS: native Markdown controls render headings, emphasis, quote, list, code and table\nPASS: 120 streaming Markdown snapshots retain raw text immediately, render the latest table once, and flush final content\nPASS: processing state, operation hide/restore, successful capture dismissal retains messages\nPASS: on-top details, concurrent preview replacement, collapsed/operation preview stays closed after decoding\nPASS: hidden ball remains hidden, collapse/reopen, cancelled capture does not reopen\nPASS: closing message panel dismisses capture overlay\n"+fluentChecks+visibilityAndResizeChecks+moveChecks+codexChecks+composerChecks+"No desktop screenshot, clipboard access, browser connection, or real send was performed.\n");
         }
         catch(Exception e){await File.WriteAllTextAsync(Path.Combine(output,"floating-ui-test.txt"),"FAIL: "+e.GetType().Name+": "+e.Message+"\n"+e.StackTrace);Environment.ExitCode=1;}
@@ -663,7 +664,7 @@ public partial class App : Application
     internal void BeginCapture()
     {
         if(Toolbar?.IsSending==true||Panel?.IsBusy==true)return;
-        EndCaptureSession();
+        EndCaptureSession(hidePanel:Panel?.IsFullScreen!=true);
         try
         {
             Toolbar?.AppWindow.Hide();Panel?.HideForOperation();Ball?.AppWindow.Hide();Native.DwmFlush();
@@ -696,7 +697,7 @@ public partial class App : Application
         Ball??=new FloatingBallWindow(ToggleFloatingPanel,HideFloatingBall,ShowSettings);
         Ball.Present();
     }
-    private void ShowFloatingBallIfWanted(){if(ballWanted&&!capturing)Ball?.AppWindow.Show(false);}
+    internal void ShowFloatingBallIfWanted(){if(ballWanted&&!capturing&&Panel is not {IsFullScreen:true,IsExpanded:true})Ball?.AppWindow.Show(false);}
     internal void HideFloatingBall(){ballWanted=false;Ball?.AppWindow.Hide();}
     internal void ToggleFloatingPanel()
     {

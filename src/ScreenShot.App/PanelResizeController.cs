@@ -20,6 +20,11 @@ internal sealed class PanelResizeController : IDisposable
 
     internal PanelResizeController(nint handle,Action<PanelResizeGesture> callback){this.handle=handle;this.callback=callback;}
     internal bool IsDragging=>activeGrip!=null;
+    internal void SetEnabled(bool enabled)
+    {
+        if(!enabled)Cancel();
+        foreach(var attachment in attachments)foreach(var grip in attachment.Grips)grip.IsHitTestVisible=enabled;
+    }
 
     internal void Attach(Border surface,PanelResizePane pane,double topGripThickness=PanelResizePolicy.GripThickness)
     {

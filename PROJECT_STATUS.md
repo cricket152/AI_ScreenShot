@@ -1,6 +1,9 @@
 # 项目状态
 
 ## 已完成
+- 2026-10-09 按截图统一图标外观：新建/历史按钮复用全屏按钮的透明无描边样式，移除输入区上下箭头的白色圆角底板；保留尺寸、点击区域、悬停/按下反馈、提示与键盘操作。改动仅涉及 App.xaml 样式与 FloatingPanelWindow.cs 现有按钮接入，无新增依赖，相关文档同步。scripts/verify.ps1 通过（0 warning / 0 error，910 项断言）；dist/AIScreenShot-win-x64-reading-v2 已发布，--startup-test --reading-mode-test exit 0，原生全屏/输入折叠及流式/跨标签检查通过，App DLL 与构建 SHA256 一致，git diff --check 通过。本次未重复完整界面诊断；上一版的完整回归记录保留。自测不读取用户数据或发送真实模型请求。
+- 2026-10-09 增加全屏阅读及输入区折叠：标签栏“＋”之前放置 14px 全屏/退出图标，进入后消息栏覆盖当前显示器物理范围、标签置顶，工具栏/阴影/悬浮球暂时隐藏，禁用拖动、边缘缩放和球跟随。退出图标或 Esc 恢复原位置、尺寸、两栏显隐与球偏好；新建/切换标签、流式生成和截图操作恢复保持全屏。输入区上沿中央增加 40×20px 小箭头；180ms 向下平移 20px 并淡出，完成后让出阅读空间，保留向上箭头重新展开。快速反向从当前值继续，遵循应用/系统动画开关；草稿/截图保留，停止入口独立，新截图立即展开输入。沿用原生 WinUI，无新增依赖。
+- 本版验证：scripts/verify.ps1 通过（0 warning / 0 error，910 项断言），dist/AIScreenShot-win-x64-reading-v1 已发布，App DLL 与最终构建 SHA256 一致。最终包 --startup-test --reading-mode-test 及完整 --floating-ui-test 均 exit 0；覆盖原生图标 Invoke、当前显示器 HWND 全屏、标签置顶/正文伸展、原尺寸/工具栏状态恢复、操作准备隐藏恢复、快速反向/向下淡出/关闭动画/释放阅读空间、跨标签草稿与截图、全宽流式回复/隐藏输入保留停止/后台完成不改变阅读状态及旧功能回归。生成图/临时数据库/注入发送器自测不读写用户历史或剪贴板、不截图桌面、不发真实请求；git diff --check 通过。深色 RenderTargetBitmap 既有白块问题仍保留，混合 DPI 多屏实际观感待验收。
 - 2026-10-09 修复截图后切换/新建对话导致发送按钮禁用：面板保存本次运行最新 PNG/缩略图快照，空闲目标标签在切换/新建/重开时接入一次最新截图，沿用自己的工作区/模式并保留提示词草稿；发送和等待中的标签延迟接入，不修改既有请求/历史图片。截图解码采用面板级版本，切换期间接受当前有效结果，迟到/取消结果不替换新图；只有截图发起标签仍选中时清空其原提示词。重复切换同一截图不会清除该标签的 Sent/Unknown 锁，其他标签可独立发送，Failed 仍可重试。未新增依赖，上一轮未提交的数学修复保留。
 - 截图传递验证：scripts/verify.ps1 通过（0 warning / 0 error，910 项断言）；dist/AIScreenShot-win-x64-capture-routing-v1 已发布，App DLL 与最终构建 SHA256 一致。--startup-test --capture-routing-test 和完整 --floating-ui-test 均 exit 0，覆盖已有/新建/关闭重开标签、不同真实测试目录与 Codex/Agent 原生发送 Invoke、图片/缩略图/草稿正确、Sent/Unknown 防重发/失败重试、跨标签后台快照、新截图及历史图片持久化、解码竞态/取消/重启恢复/无存储新标签。生成 PNG、临时数据库与注入发送器不访问用户历史、剪贴板或桌面，不发真实模型请求；git diff --check 通过。
 - 2026-10-09 修复数学公式被 Markdown 转义吞掉、直接显示 LaTeX 命令的问题：优先识别行内 \(...\) / $...$ 与块级 \[...\] / $$...$$，公式中的强调标记、矩阵行分隔和表格竖线保持完整，未闭合流式公式保留源文本。新增 CSharpMath.Rendering 0.5.1 纯 C# 数学排版依赖与自写 WinUI Canvas/PathGeometry 适配器；支持分数、根式、上下标、希腊字母/专业符号、集合、求和/积分、矩阵/分段/对齐、运算符与带标注箭头，修正库对紧贴 = / * / ' 的命令边界误读。字号统一为 WinUI 逻辑像素，行内基线对齐，宽公式只向下缩放适配窗口；主题切换重取正文前景。中文数学文本借用 Windows 已安装的 DengXian/SimHei 字体，缺字/不支持/异常/过大公式回退完整原文。字体与依赖许可随包发布，无 Web UI、远端排版或 TeX 运行时。
@@ -25,6 +28,7 @@
 - v3 修复包验证：scripts/verify.ps1 通过（0 warning / 0 error，851 项断言），发布 DLL 与最终构建一致。完整 --floating-ui-test 首次因测试期间前台窗口变化而未通过焦点断言，重跑 exit 0；未移除或放宽检查。普通启动到达 ready 并持续运行，启动前后现有数据库均 4 条对话、quick_check=ok；旧实例此前已退出，v3 留在桌面运行。git diff --check 通过。
 
 ## 未完成
+- 全屏/输入折叠在混合 DPI 多屏、系统高对比度及实际鼠标/键盘操作下的桌面观感仍需用户验收；原生专项验证当前显示器实际 HWND、控件状态和生成样例，不截图用户桌面。
 - 截图后切换/新建标签到实际工作区的真实 Codex/Agent 请求仍需用户桌面验收；原生专项使用不同测试目录与注入发送器验证图片及目标，不代表真实服务端到端结果。
 - 数学显示、跨公式鼠标拖选、实际复制粘贴和混合 DPI/高对比度仍需用户桌面验收；公式是原生矢量对象，选中复制得到对应 LaTeX 原文，绘图语法按用户要求保留原文。
 - 跨段鼠标拖选和实际剪贴板粘贴需用户桌面验收；原生诊断验证 Select/SelectAll 和注入复制写入器，不读写用户剪贴板。
@@ -39,6 +43,7 @@
 - 旧 NativeHost 仅剩被 .gitignore 排除的 bin/obj，此前递归清理被工具自动审批拒绝，未执行删除；旧 dist 包保留，不视为当前版本。源码及新包无官网组件。
 
 ## 最近修改文件
+- 全屏/折叠：src/ScreenShot.App/FloatingPanelReadingMode.cs、FloatingPanelWindow.cs、FloatingPanelPlacement.cs、FloatingPanelConversations.cs、PanelResizeController.cs、App.xaml、App.xaml.cs；专项：ReadingModeDiagnostics.cs、StartupDiagnostics.cs；README.md、docs/UI_DESIGN.md、PROJECT_STATUS.md 同步。
 - 最新截图跨对话传递：src/ScreenShot.App/FloatingPanelWindow.cs；原生专项：ConversationDiagnostics.cs、StartupDiagnostics.cs、App.xaml.cs、RuntimeDiagnostics.cs（生成不同测试图）；README.md、docs/UI_DESIGN.md、PROJECT_STATUS.md 同步。
 - 数学解析/显示：src/ScreenShot.Core/MarkdownDocument.cs、src/ScreenShot.App/NativeMathRenderer.cs、MarkdownMessageView.cs、ScreenShot.App.csproj；回归：RuntimeDiagnostics.cs、StartupDiagnostics.cs、App.xaml.cs、tests/ScreenShot.Tests/MarkdownTests.cs；README.md、docs/UI_DESIGN.md、THIRD_PARTY_NOTICES.md、licenses 与 PROJECT_STATUS.md 同步。
 - 跨段选择与复制图标：src/ScreenShot.App/MarkdownMessageView.cs、FloatingPanelWindow.cs、FloatingPanelConversations.cs、App.xaml；原生选择/复制回归：RuntimeDiagnostics.cs、StartupDiagnostics.cs、App.xaml.cs；README.md、docs/UI_DESIGN.md、PROJECT_STATUS.md 同步说明。
@@ -48,6 +53,7 @@
 - 文档：README.md、docs/UI_DESIGN.md、THIRD_PARTY_NOTICES.md、PROJECT_STATUS.md。之前清理的 CodexConversation.cs、Native.cs 修改保留。
 
 ## 已确认设计决策
+- 用户要求标签栏右侧小图标进入全屏，工具栏隐藏、标签置顶、内容占满下方；输入区上沿小箭头收起并向下淡出。使用现有无边框 presenter 与当前显示器 Monitor bounds，退出恢复悬浮状态；输入折叠本次面板内共享，各标签数据继续独立，重启默认展开，新截图显式展开输入。参考 Astryx IconButton 无障碍/提示和 emil-design-eng 动效原则，不引入 Web UI 或依赖。2026-10-11 用户授权将本次全屏/输入折叠、透明图标样式及相关诊断/文档提交到本地 Git；发布包、数据库、截图、日志和密钥不纳入提交，不推送远端。
 - 用户要求截图可用于任意工作区，包括截图后新建的对话。最新截图在本次面板生命周期内供所有标签接入；提示词、工作区、发送模式、消息历史、原生 thread 与任务仍按标签隔离。每个目标标签独立持久化截图草稿，同一标签/目标的 Sent/Unknown 防重发保护保留，不自动发送。正在执行的请求保持旧截图快照，空闲后采用最新截图。
 - 用户明确选择“先修复公式与专业符号，绘图语法保留原文”。数学排版采用 CSharpMath.Rendering + 原生 WinUI 矢量适配器，保持连续选择和原文复制；没有把数学作图代码当作可执行输入，不引入 Web UI。新增数学依赖前已说明纯替换专业符号无法正确排版分数/矩阵的限制。
 - 2026-10-09 用户授权将最新截图跨对话发送与此前未提交的数学渲染修复、诊断、文档和许可证一起提交到本地 Git；发布包、本地数据库、截图、日志和密钥不纳入提交，不推送远端。
@@ -62,5 +68,5 @@
 - 沿用 .tools/dotnet、scripts/verify.ps1 和 scripts/publish.ps1；未经明确要求不 commit/push。2026-10-09 用户授权将累计的多会话/本地记忆、启动修复、界面调整和历史删除/重命名修复提交到本地 Git；不包含发布包、数据库、截图、日志或密钥，未推送远端。f5e245e 为此前用户授权的本地提交。
 
 ## 后续计划
-- 最新修复包为 dist/AIScreenShot-win-x64-capture-routing-v1，包含上一轮数学排版修复；旧实例未强制退出，用户退出旧版后启动新包，验收截图→切换/新建对话→选择目标工作区→发送，以及数学排版、跨段选择与复制图标。继续验收并行/停止/关闭重开/重启恢复、历史重命名/删除、标签溢出/主题色、球与栏对齐及真实服务恢复。
+- 最新修改发布至 dist/AIScreenShot-win-x64-reading-v2，统一全屏/新建/历史及输入区箭头的透明无描边外观，包含全屏/输入折叠及此前数学排版、截图传递修复；旧实例不强制退出，用户退出旧版后启动新包，验收图标外观、全屏/退出恢复、输入折叠/展开/动效，截图→切换/新建对话→选择目标工作区→发送，以及数学排版、跨段选择与复制图标。继续验收并行/停止/关闭重开/重启恢复、历史重命名/删除、标签溢出/主题色、球与栏对齐及真实服务恢复。
 - 与用户讨论 Agent 应用场景和工具扩展；暂不增加长期知识库或跨会话共享，先保持基础会话隔离和稳定恢复。

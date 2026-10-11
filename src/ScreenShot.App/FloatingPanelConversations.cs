@@ -129,9 +129,10 @@ internal sealed partial class FloatingPanelWindow
     private void SelectConversation(ConversationView view)
     {
         if(closed)return;
-        ClosePreview();paneMenu.Hide();
+        FinishComposerTransition();ClosePreview();paneMenu.Hide();
         messageHeader?.Children.Remove(paneMenuButton);
         EnsureView(view);current=view;view.Data.IsOpen=true;
+        ApplyComposerState(view);
         chatHost.Children.Clear();chatHost.Children.Add(view.Content);
         RefreshWorkspace();MovePaneMenu();UpdateButtons();RenderTabs();Persist(view);
         try{store?.Select(view.Data.Id);}catch(IOException){SetStatus("选中标签未能保存，请检查磁盘空间和权限");}

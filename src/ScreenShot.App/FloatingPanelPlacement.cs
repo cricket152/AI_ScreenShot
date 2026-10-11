@@ -9,7 +9,7 @@ internal sealed partial class FloatingPanelWindow
 
     private void AlignBallWithToolbar()
     {
-        if(closed||aligningBall||app.Ball==null||!Native.GetWindowRect(Handle,out var panel))return;
+        if(closed||fullScreen||aligningBall||app.Ball==null||!Native.GetWindowRect(Handle,out var panel))return;
         double scale=Math.Max(96u,Native.GetDpiForWindow(Handle))/96d;
         aligningBall=true;
         try{app.Ball.AlignWithToolbar(panel.Top+(int)Math.Round(BallCenterOffset*scale));}
@@ -18,7 +18,7 @@ internal sealed partial class FloatingPanelWindow
 
     internal void FollowBall(Native.Rect previous,Native.Rect next)
     {
-        if(closed||aligningBall||!expanded||!Native.GetWindowRect(Handle,out var panel))return;
+        if(closed||fullScreen||aligningBall||!expanded||!Native.GetWindowRect(Handle,out var panel))return;
         FinishVisualTransition();moveController.Cancel();resizeController.Cancel();
         if(!TryWorkArea(next,out var work))return;
         double scale=Math.Max(96u,Native.GetDpiForWindow(Handle))/96d;
