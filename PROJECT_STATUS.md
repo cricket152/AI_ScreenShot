@@ -1,8 +1,9 @@
 # 项目状态
 
 ## 已完成
+- 2026-10-12 按用户明确要求恢复原本地提交链并同步 GitHub：恢复提交 b1fb060 的第一父提交为原历史末端 928209c，第二父提交为已发布的 2094cd1；原 14 条提交的 ID、顺序和内容完整保留，当前 README、宣传素材与关于页链接同样保留。恢复提交的 tree 与恢复前 main 完全一致，普通推送将 origin/main 从 2094cd1 更新为 b1fb060，无强制推送或历史删除，现有 Preview 标签/附件保持不变。恢复前已创建本机 codex/backup-public-main-20261012 和完整 .tools/history-restore-20261012.bundle；旧历史分支也保留。scripts/verify.ps1 通过（0 warning / 0 error，996 项断言），远端返回的 SHA/双父提交与本机相符。
 - 2026-10-12 完成 GitHub 首次公开发布：源码快照 b9dda44 已推送到 https://github.com/cricket152/AI_ScreenShot 的 main，共 120 个文件；Description 已设置为 Windows 11 原生截图与 AI 对话工具及实际技术栈。v2026.10.11-preview 已公开发布为 prerelease，标签指向 b9dda44；ZIP（111256421 bytes）和 SHA256（101 bytes）均 uploaded，GitHub digest 与本机逐项一致，ZIP SHA256 仍为 a9f2e7f13256e4019f4a5c6127b36e7d4bd30d11da7095f3d839f3d05ad33110。README、Issues 与下载链接已接入，完整 UI 自测未通过/未签名/许可未声明保留在说明中。
-- 公开上传安全检查：完成原 Git 历史、当前文本与发布包扫描，未发现实际密钥；测试凭据 URL 是保留域名的校验样例。旧提交的个人邮箱与本机用户名路径仅留在本机 codex/local-history，公开 main 是独立初始快照，使用 GitHub noreply 身份；远端只有 main，本机历史分支未上传。未脱敏 setup4.png 在本机保留并忽略，GitHub 使用脱敏版；公开快照直接重生成五张图片 SHA256 一致。scripts/verify.ps1 再次通过（0 warning / 0 error，996 项断言）；宽/窄 README 预览、25 个本地资源链接/锚点通过，无横向溢出。
+- 首次公开上传安全检查：完成原 Git 历史、当前文本与发布包扫描，未发现实际密钥；测试凭据 URL 是保留域名的校验样例。首次发布采用独立快照并将旧提交留在本机，随后用户明确要求恢复原提交链并同步 GitHub，现已原样接回旧提交，其作者元数据和历史文档路径随原 commit 一并同步，不再自行改写。未脱敏 setup4.png 继续在本机保留并忽略，GitHub 使用脱敏版；公开快照直接重生成五张图片 SHA256 一致。scripts/verify.ps1 通过（0 warning / 0 error，996 项断言）；宽/窄 README 预览、25 个本地资源链接/锚点通过，无横向溢出。
 - 2026-10-12 完成中断后的发布附件核验与交付：dist/releases/AIScreenShot-win-x64-20261011.zip（111256421 bytes，约 106.1 MiB，634 个文件）及同名 .sha256，日期保留实际构建批次，不代替 Release 版本。ZIP CRC、633 个内容文件 SHA256、解压后 --startup-test（exit 0）、当前 App/Core DLL 一致及编译程序集含指定 GitHub 链接验证通过；包含自包含运行时、用户文档、真实宣传图及第三方 notices，不含用户设置/对话、未脱敏目录图、PDB 或测试诊断。发布说明在 docs/releases/2026-10-11.md 与包内 RELEASE_NOTES.md；主程序未签名、主项目许可未声明、完整 UI 自测三次未通过均如实保留。未上传 Release、commit 或 push。
 - 2026-10-11 设置“关于”新增原生 HyperlinkButton：显示 GitHub · cricket152，NavigateUri 指向用户指定的 https://github.com/cricket152，附默认浏览器提示及可访问帮助；README 同步开发者主页。参考 Astryx Link 的描述性文字/原生键盘/外部链接约定，不引入依赖。scripts/verify.ps1 通过（0 warning / 0 error，996 项断言），scripts/publish.ps1 输出到独立 .tools/release-20261011/payload；App/Core DLL 与当前构建一致。发布目录 --startup-test 及 --floating-ball-test --animation-test --reading-mode-test --composer-test --capture-routing-test --storage-test 组合 exit 0，含 51 项动效/316 项悬浮球；真实服务、用户数据和剪贴板未用于专项。
 - 2026-10-11 完成 README 产品展示体系：基于实际代码核对截图/文字追问、多标签并行、历史恢复、原生外观动效、Codex App Server 与 Agent 上下文；首页按产品介绍、获取与配置、功能、上手、隐私、开发组织，详细操作和诊断迁移到 docs/USER_GUIDE.md、docs/DEVELOPMENT.md，并修正旧文档“Agent 不带历史”“每次 Codex 截图新建会话”的过时描述。确认当前无 Git remote、主项目 LICENSE 或 GitHub Release 工作流，不编造下载、版本、协议；扩展/Native Messaging 明确已移除。
@@ -69,6 +70,7 @@
 - 旧 NativeHost 仅剩被 .gitignore 排除的 bin/obj，此前递归清理被工具自动审批拒绝，未执行删除；旧 dist 包保留，不视为当前版本。源码及新包无官网组件。
 
 ## 最近修改文件
+- 提交链恢复：仅 PROJECT_STATUS.md 更新记录；程序代码、README、图片及既有 Release 文件未变。Git main 通过新增双父恢复提交接回原历史，当前与 origin/main 同步。
 - GitHub 发布：.gitignore（排除未脱敏原图）、scripts/create-readme-images.py（缺原图时使用脱敏输入）、README.md、docs/DEVELOPMENT.md、docs/IMAGE_ASSETS.md、docs/releases/2026-10-11.md、PROJECT_STATUS.md；当前 main 跟踪 origin/main，本机旧历史保留在 codex/local-history。
 - 发布准备：src/ScreenShot.App/SettingsWindow.cs、README.md、docs/releases/2026-10-11.md、PROJECT_STATUS.md；发布目录与验证产物仅在忽略的 .tools/dist 下，保留此前 README/图片工作区修改。
 - README 展示：README.md、docs/USER_GUIDE.md、docs/DEVELOPMENT.md、docs/IMAGE_ASSETS.md、scripts/create-readme-images.py、docs/images/brand/readme-hero.png、docs/images/features/{screenshot-ai,multi-conversation,customization}.png、docs/images/sanitized/setup-codex.png、PROJECT_STATUS.md；已有截图不改动。
@@ -87,7 +89,7 @@
 - 文档：README.md、docs/UI_DESIGN.md、THIRD_PARTY_NOTICES.md、PROJECT_STATUS.md。之前清理的 CodexConversation.cs、Native.cs 修改保留。
 
 ## 已确认设计决策
-- 本次用户明确授权 commit/push、仓库 Description 更新和公开 Release 上传；只推送公开 main 及 Preview 发布标签，不推送本机历史分支或构建目录。GitHub 首次发布采用源码快照，原历史与未脱敏截图不删除；仅仓库级提交身份改用 GitHub noreply，全球 Git 配置不改动。已验证的 20261011 ZIP 保持字节不变，使用 v2026.10.11-preview 标记预发布，不宣称完整 UI 自测通过。
+- 用户授权 commit/push、Description 更新和 Release 上传，后又明确要求恢复原本地提交链并同步 GitHub；本次保留原 commit ID/父链/作者信息，以原历史为第一父链，已有公开提交为第二支线，避免强制推送和丢失发布工作。备份分支与原图不删除，不推送构建目录或用户数据；之后不得未经确认重新改写/截断 main 历史。新提交继续使用仓库级 GitHub noreply，全球 Git 配置不改动。已验证的 20261011 ZIP 保持字节不变，Preview 未通过的 UI 检查说明继续保留。
 - 用户要求加入 GitHub 账号并准备 Release 附件，不要求上传或提交。仅展示已提供的开发者主页，不推测仓库地址或版本号；附件采用日期命名的 Windows x64 便携 ZIP 和 SHA256，主程序未签名、主项目许可未声明如实说明，不修改发布配置或旧包。
 - README 仅借鉴 DeskBox 的组织与展示思路，采用现有图标、真实截图和原创暖白/低饱和绿排版，不复制品牌资源或生成虚构 UI；绿色仅是素材配色，应用仍支持任意主题色。多对话图是两个真实状态对照，不能当作并行生成实录；本机目录只在衍生图脱敏。图片生成依赖仅用于文档，不引入应用生产依赖或调整发布脚本。
 - 2026-10-11 用户明确授权将本次悬浮球重设计及诊断/文档提交到当前 main 的本地 Git，共 12 个文件；不推送远端，不纳入发布包、构建工具、诊断生成图片或用户数据。新出现的未跟踪 docs/images 未被本次文档引用，保持原样，不纳入悬浮球提交。
@@ -113,7 +115,7 @@
 - 沿用 .tools/dotnet、scripts/verify.ps1 和 scripts/publish.ps1；未经明确要求不 commit/push。2026-10-09 用户授权将累计的多会话/本地记忆、启动修复、界面调整和历史删除/重命名修复提交到本地 Git；不包含发布包、数据库、截图、日志或密钥，未推送远端。f5e245e 为此前用户授权的本地提交。
 
 ## 后续计划
-- 维护者确认主项目许可，并继续验收 Preview 的菜单/焦点、实际 GitHub 链接及真实服务、多屏交互；后续只从公开 main 发布，保留本机旧历史分支而不推送。界面变化时更新截图与生成脚本坐标，按 docs/IMAGE_ASSETS.md 复核隐私及图示真实性。
+- 维护者确认主项目许可，并继续验收 Preview 的菜单/焦点、实际 GitHub 链接及真实服务、多屏交互；后续在已恢复原提交链的 main 上正常开发，不擅自重建根提交或改写既有历史。界面变化时更新截图与生成脚本坐标，按 docs/IMAGE_ASSETS.md 复核隐私及图示真实性。
 - 本次便携包为 dist/AIScreenShot-win-x64-ball-glass-v2，包含按参考图重绘的白色图形/玻璃渐变/外阴影、最新本地存储缺表保护、文字追问和此前 motion/reading/composer 功能。用户从托盘退出旧实例后启动该包，重点验收悬浮球轮廓/图标比例/高光/不同桌面上的柔和阴影、任意主题色即时预览/保存/关闭撤销、五种状态、阴影开关、动效预设/速度/关闭及实际跨屏 DPI 拖动；原有交互及真实模型路径继续按已有计划验收。不自动启动普通实例或结束旧实例；本次 Git 提交按用户授权执行，旧包保留。
 - 已有包为 dist/AIScreenShot-win-x64-followup-v1，包含 storage-v1/composer-v1/motion-v2；本次缺表保护增强已进入源代码并通过验证，实际使用前按 scripts/publish.ps1 重新发布。用户退出旧版后重点验收第二及后续标签截图发送后继续文字追问、按钮/Ctrl+Enter 和重启恢复。常规页继续验收本地存储统计、打开文件夹及确认清理，保留其他对话和草稿中的图片；继续验收紧凑输入区/Enter 换行、独立动效栏目中的微小弹性回弹、简约淡出/阴影同步、速度/开关/预览/独立保存回退、连续显隐/标签操作、并发回复/流式滚动、混合 DPI 拖动、截图及全屏阅读；不强制结束旧实例。
 - 动效包包含此前 reading-v2 的全屏/新建/历史及输入区箭头透明无描边外观、数学排版与截图传递修复；继续验收图标、截图→切换/新建对话→选择目标工作区→真实发送，以及数学排版、跨段选择与复制图标、停止/关闭重开/重启恢复、历史重命名/删除、标签溢出/主题色、球与栏对齐及真实服务恢复。
