@@ -239,6 +239,10 @@ internal sealed partial class SettingsWindow : Window
         about.Children.Add(SectionTitle("AI ScreenShot"));
         about.Children.Add(Body("截图、查看与发送，在桌面上完成。使用原生 WinUI 控件，外观跟随 Windows 浅色与深色主题。"));
         about.Children.Add(Body("C# · .NET 10 · WinUI 3 · Windows App SDK"));
+        var github=new HyperlinkButton{Content="GitHub · cricket152",NavigateUri=new Uri("https://github.com/cricket152"),HorizontalAlignment=HorizontalAlignment.Left};
+        ToolTipService.SetToolTip(github,"https://github.com/cricket152 · 在默认浏览器中打开");
+        AutomationProperties.SetHelpText(github,"在默认浏览器中打开 cricket152 的 GitHub 主页");
+        about.Children.Add(github);
         var folder=ActionButton("打开程序目录","\uE8B7");
         folder.Click+=(_,_)=>System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe",AppContext.BaseDirectory){UseShellExecute=true});
         about.Children.Add(SettingRow("程序目录","查看程序和发布文件。",folder));

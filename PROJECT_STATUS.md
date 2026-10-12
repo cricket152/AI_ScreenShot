@@ -1,6 +1,12 @@
 # 项目状态
 
 ## 已完成
+- 2026-10-12 完成 GitHub 首次公开发布：源码快照 b9dda44 已推送到 https://github.com/cricket152/AI_ScreenShot 的 main，共 120 个文件；Description 已设置为 Windows 11 原生截图与 AI 对话工具及实际技术栈。v2026.10.11-preview 已公开发布为 prerelease，标签指向 b9dda44；ZIP（111256421 bytes）和 SHA256（101 bytes）均 uploaded，GitHub digest 与本机逐项一致，ZIP SHA256 仍为 a9f2e7f13256e4019f4a5c6127b36e7d4bd30d11da7095f3d839f3d05ad33110。README、Issues 与下载链接已接入，完整 UI 自测未通过/未签名/许可未声明保留在说明中。
+- 公开上传安全检查：完成原 Git 历史、当前文本与发布包扫描，未发现实际密钥；测试凭据 URL 是保留域名的校验样例。旧提交的个人邮箱与本机用户名路径仅留在本机 codex/local-history，公开 main 是独立初始快照，使用 GitHub noreply 身份；远端只有 main，本机历史分支未上传。未脱敏 setup4.png 在本机保留并忽略，GitHub 使用脱敏版；公开快照直接重生成五张图片 SHA256 一致。scripts/verify.ps1 再次通过（0 warning / 0 error，996 项断言）；宽/窄 README 预览、25 个本地资源链接/锚点通过，无横向溢出。
+- 2026-10-12 完成中断后的发布附件核验与交付：dist/releases/AIScreenShot-win-x64-20261011.zip（111256421 bytes，约 106.1 MiB，634 个文件）及同名 .sha256，日期保留实际构建批次，不代替 Release 版本。ZIP CRC、633 个内容文件 SHA256、解压后 --startup-test（exit 0）、当前 App/Core DLL 一致及编译程序集含指定 GitHub 链接验证通过；包含自包含运行时、用户文档、真实宣传图及第三方 notices，不含用户设置/对话、未脱敏目录图、PDB 或测试诊断。发布说明在 docs/releases/2026-10-11.md 与包内 RELEASE_NOTES.md；主程序未签名、主项目许可未声明、完整 UI 自测三次未通过均如实保留。未上传 Release、commit 或 push。
+- 2026-10-11 设置“关于”新增原生 HyperlinkButton：显示 GitHub · cricket152，NavigateUri 指向用户指定的 https://github.com/cricket152，附默认浏览器提示及可访问帮助；README 同步开发者主页。参考 Astryx Link 的描述性文字/原生键盘/外部链接约定，不引入依赖。scripts/verify.ps1 通过（0 warning / 0 error，996 项断言），scripts/publish.ps1 输出到独立 .tools/release-20261011/payload；App/Core DLL 与当前构建一致。发布目录 --startup-test 及 --floating-ball-test --animation-test --reading-mode-test --composer-test --capture-routing-test --storage-test 组合 exit 0，含 51 项动效/316 项悬浮球；真实服务、用户数据和剪贴板未用于专项。
+- 2026-10-11 完成 README 产品展示体系：基于实际代码核对截图/文字追问、多标签并行、历史恢复、原生外观动效、Codex App Server 与 Agent 上下文；首页按产品介绍、获取与配置、功能、上手、隐私、开发组织，详细操作和诊断迁移到 docs/USER_GUIDE.md、docs/DEVELOPMENT.md，并修正旧文档“Agent 不带历史”“每次 Codex 截图新建会话”的过时描述。确认当前无 Git remote、主项目 LICENSE 或 GitHub Release 工作流，不编造下载、版本、协议；扩展/Native Messaging 明确已移除。
+- README 素材：scripts/create-readme-images.py 用 Pillow 与 Windows 字体合成 1800×900 Hero、三张 1600×900 功能图和一张 Codex 目录脱敏图；真实 UI 保留，七张用户原图不变，四张宣传图每张约 230–300 KB。docs/IMAGE_ASSETS.md 维护设计、来源、裁切与重生成方法。scripts/verify.ps1 通过（0 warning / 0 error，996 项断言）；本地 GFM 浏览器预览在 1280px/390px 下图片和四个徽章加载、24 个本地链接/锚点与无横向溢出检查通过，PNG 解码/分辨率/独立重生成 SHA256 一致、目录脱敏改动范围检查和 git diff --check 通过。未发布到 GitHub，因此本地预览不等于线上页面验收；未修改业务/UI/构建配置，未 commit/push。
 - 2026-10-11 按用户参考图重设计悬浮球：移除 Acrylic 外环、按钮描边及 presenter 隐藏的 WS_DLGFRAME（原 52px HWND 只有 46px 客户区），完整透明客户区内绘制单个 48px 圆形按钮。32px 原生白色 PathIcon 占主体约 67%，使用四个对称圆润取景框边角和柔和曲线星芒；不嵌入参考图片或白底，原应用/托盘 PNG/ICO 保留。复用 AppThemeController 派生三段主题渐变、247/255 轻微透明主体、左上径向高光及 0.65px 渐变细轮廓；明亮色适度压暗，五种状态的白色图形对比度至少 3:1，包含主体 alpha 与最亮高光叠加白色桌面。外阴影复用 PanelShadowWindow 和既有开关/扩散/不透明度，派生小范围带色阴影，透明内部、输入穿透、不激活、同步显隐/移动/DPI，关闭释放；面板默认黑阴影兼容。高对比度取消高光/轮廓/阴影并使用系统状态背景，必要时压暗以保持白色图形。沿用 Toolbar 统一动效，无新依赖或配置，拖动/吸附/点击/展开/位置联动逻辑不变。
 - 悬浮球验证：scripts/verify.ps1 通过（0 warning / 0 error，996 项断言）；最终 dist/AIScreenShot-win-x64-ball-glass-v2 的 --startup-test --floating-ball-test --animation-test --reading-mode-test 和完整 --floating-ui-test 均 exit 0。316 项悬浮球检查覆盖五种状态、Light/Dark 与七种自定义色、白色矢量/高光/细轮廓、状态对比度、Windows 强调色、完整客户区、透明圆周及主体 alpha、100/125/150/200% 控件渲染，以及外阴影透明内部、柔和边缘、预乘 tint、输入穿透、缓存、实际位置跟随、显隐、配置关闭和前台保持；51 项动效与原有 ColorPicker 即时预览/撤销、两栏中心对齐、全屏恢复回归通过。较大尺寸原生预览 ball-glass-*.png 使用主题底色衬底，原尺寸 ball-*.png 保留透明通道。App/Core DLL 与最终构建 SHA256 相同，git diff --check 通过。自测只用生成控件/PNG、专用 SQLite 与注入发送器，不截图桌面、不操作用户历史/剪贴板、不保存用户设置或发送真实请求；本次经后续用户授权纳入本地 Git 提交，未 push，旧实例未强制结束。不同尺寸渲染不等于真实跨屏 DPI 切换，高对比度和多屏鼠标观感仍需桌面验收。
 - 2026-10-11 按用户要求将本地存储卡片、未使用截图清理、原子草稿持久化、相关 Core/原生诊断和文档提交到本地 Git；与之前 5b6e5be 的文字追问修复保持独立，共 12 个文件。只提交源代码、测试和文档，不包含发布包、诊断生成文件、用户数据或密钥，不推送远端。
@@ -44,6 +50,7 @@
 - v3 修复包验证：scripts/verify.ps1 通过（0 warning / 0 error，851 项断言），发布 DLL 与最终构建一致。完整 --floating-ui-test 首次因测试期间前台窗口变化而未通过焦点断言，重跑 exit 0；未移除或放宽检查。普通启动到达 ready 并持续运行，启动前后现有数据库均 4 条对话、quick_check=ok；旧实例此前已退出，v3 留在桌面运行。git diff --check 通过。
 
 ## 未完成
+- 主项目许可待维护者确认；GitHub 仓库与 Preview Release 已公开，完整 UI 的菜单/焦点问题及真实服务、多屏实机验收仍未完成。
 - 悬浮球在混合 DPI 多屏切换、实际鼠标拖动/贴边、不同桌面背景及系统高对比度下的实际观感仍需桌面验收；本轮已验证当前显示器完整客户区、控制状态、透明边缘、白色图形对比度、不同尺寸控件渲染和阴影位置/显隐，不改变系统显示缩放或高对比度设置。
 - 动效在混合 DPI 多屏、不同任务栏位置、真实鼠标标签拖动、系统动画偏好动态切换和高对比度下的实际观感仍需桌面验收；本轮原生诊断验证当前显示器 HWND/命中/移动及开关策略，不等同真实多屏操作。输入区截图预览按用户要求移除，截图完成状态反馈保留；原界面没有单独删除草稿截图入口，不新增截图删除业务。
 - 全屏/输入折叠在混合 DPI 多屏、系统高对比度及实际鼠标/键盘操作下的桌面观感仍需用户验收；原生专项验证当前显示器实际 HWND、控件状态和生成样例，不截图用户桌面。
@@ -55,12 +62,16 @@
 - 长期记忆、向量数据库、RAG、tools 和跨对话共享不在第一版范围，留待用户讨论。
 
 ## 当前 Bug
+- 本次待发布包完整 --floating-ui-test 三次分别在菜单显隐、过渡前台保持、透明命中不激活断言处失败，均在设置页检查之前；失败原因未确认，不以专项成功代替完整 UI 回归。报告保留在 .tools/release-20261011，检查未放宽，发布前需人工验收悬浮菜单、焦点及新增关于链接。
 - 既有深色 RenderTargetBitmap 预览部分按钮/气泡出现白块、文字不可见，上一版也可复现。布局/原生状态检查通过不能替代实际深色桌面观感验收，本轮未改该既有问题。
 - 旧 UIA 专项诊断仍可能受到 Codex 可访问性结构变化影响；正常 provider 不依赖该路径。之前欢迎页/占位提示/消息身份/剪贴板占用修复保留，不把旧诊断当作新版发送路径。
 - Markdown 支持常用 LaTeX 数学子集，暂不支持完整 TeX 文档/宏包、绘图执行、远程图片或完整 CommonMark；未知语法、缺字和过复杂公式保留原文，HTML 不执行，链接只允许 HTTP(S)。
 - 旧 NativeHost 仅剩被 .gitignore 排除的 bin/obj，此前递归清理被工具自动审批拒绝，未执行删除；旧 dist 包保留，不视为当前版本。源码及新包无官网组件。
 
 ## 最近修改文件
+- GitHub 发布：.gitignore（排除未脱敏原图）、scripts/create-readme-images.py（缺原图时使用脱敏输入）、README.md、docs/DEVELOPMENT.md、docs/IMAGE_ASSETS.md、docs/releases/2026-10-11.md、PROJECT_STATUS.md；当前 main 跟踪 origin/main，本机旧历史保留在 codex/local-history。
+- 发布准备：src/ScreenShot.App/SettingsWindow.cs、README.md、docs/releases/2026-10-11.md、PROJECT_STATUS.md；发布目录与验证产物仅在忽略的 .tools/dist 下，保留此前 README/图片工作区修改。
+- README 展示：README.md、docs/USER_GUIDE.md、docs/DEVELOPMENT.md、docs/IMAGE_ASSETS.md、scripts/create-readme-images.py、docs/images/brand/readme-hero.png、docs/images/features/{screenshot-ai,multi-conversation,customization}.png、docs/images/sanitized/setup-codex.png、PROJECT_STATUS.md；已有截图不改动。
 - 悬浮球：src/ScreenShot.App/FloatingBallWindow.cs（透明宿主/隐藏系统边框/主题监听/阴影同步）、FloatingBallVisual.cs（白色矢量/主题渐变/高光/细轮廓与状态刷）、App.xaml（无描边样式）、PanelShadowWindow.cs（可选预乘 tint 与球下方定位，默认面板兼容）；AppThemeController.cs（复用内部颜色工具）；原生专项：FloatingBallDiagnostics.cs、StartupDiagnostics.cs、RuntimeDiagnostics.cs；README.md、docs/UI_DESIGN.md、docs/icon-candidates/README.md、PROJECT_STATUS.md 同步。
 - 文字追问修复：src/ScreenShot.App/FloatingPanelWindow.cs（发送判断/附件/提示/防重发）、FloatingPanelConversations.cs（恢复锁）；原生回归：ComposerDiagnostics.cs；README.md、docs/UI_DESIGN.md、PROJECT_STATUS.md 同步。
 - 本地存储：src/ScreenShot.Core/ScreenshotStorage.cs、ConversationStore.cs；卡片/生命周期：src/ScreenShot.App/SettingsStorage.cs、SettingsWindow.cs；原子截图持久化：FloatingPanelConversations.cs；原生专项：StorageDiagnostics.cs、StartupDiagnostics.cs；Core 回归：tests/ScreenShot.Tests/StorageTests.cs、Program.cs；README.md、docs/UI_DESIGN.md、PROJECT_STATUS.md 同步。
@@ -76,6 +87,9 @@
 - 文档：README.md、docs/UI_DESIGN.md、THIRD_PARTY_NOTICES.md、PROJECT_STATUS.md。之前清理的 CodexConversation.cs、Native.cs 修改保留。
 
 ## 已确认设计决策
+- 本次用户明确授权 commit/push、仓库 Description 更新和公开 Release 上传；只推送公开 main 及 Preview 发布标签，不推送本机历史分支或构建目录。GitHub 首次发布采用源码快照，原历史与未脱敏截图不删除；仅仓库级提交身份改用 GitHub noreply，全球 Git 配置不改动。已验证的 20261011 ZIP 保持字节不变，使用 v2026.10.11-preview 标记预发布，不宣称完整 UI 自测通过。
+- 用户要求加入 GitHub 账号并准备 Release 附件，不要求上传或提交。仅展示已提供的开发者主页，不推测仓库地址或版本号；附件采用日期命名的 Windows x64 便携 ZIP 和 SHA256，主程序未签名、主项目许可未声明如实说明，不修改发布配置或旧包。
+- README 仅借鉴 DeskBox 的组织与展示思路，采用现有图标、真实截图和原创暖白/低饱和绿排版，不复制品牌资源或生成虚构 UI；绿色仅是素材配色，应用仍支持任意主题色。多对话图是两个真实状态对照，不能当作并行生成实录；本机目录只在衍生图脱敏。图片生成依赖仅用于文档，不引入应用生产依赖或调整发布脚本。
 - 2026-10-11 用户明确授权将本次悬浮球重设计及诊断/文档提交到当前 main 的本地 Git，共 12 个文件；不推送远端，不纳入发布包、构建工具、诊断生成图片或用户数据。新出现的未跟踪 docs/images 未被本次文档引用，保持原样，不纳入悬浮球提交。
 - 悬浮球重设计仅修改悬浮入口视觉及相关诊断/文档。主体、白色取景框/星芒、高光及细轮廓由 WinUI 3 原生矢量/渐变绘制；较亮主题色适度压暗，以保持固定白色图形的 3:1 对比度，主题配置预览/保存/撤销沿用原机制。球的 52px 圆形 HWND 不能容纳完整扩散阴影，因此外阴影复用已有 Win32 layered helper 与同一阴影配置，不扩大球的点击区域；不增加厚重外环、发光、颜色配置或依赖。激活状态对应 HWND 原生激活反馈，点击/展开业务不增加新状态；保留默认 Button 的可访问名称、菜单、键盘焦点与 CommonStates，动效沿用 Toolbar。参考 Astryx Button 的无障碍与状态约定，不引入 Web UI 或 Astryx 依赖；托盘/窗口/EXE 保留原 PNG/ICO。
 - 用户已明确授权将本地存储剩余改动及其测试/文档提交到本地 Git 并保持 git status 干净；沿用现有分支，不推送远端，不把忽略的构建工具、发布包和测试生成数据纳入提交。
@@ -99,6 +113,7 @@
 - 沿用 .tools/dotnet、scripts/verify.ps1 和 scripts/publish.ps1；未经明确要求不 commit/push。2026-10-09 用户授权将累计的多会话/本地记忆、启动修复、界面调整和历史删除/重命名修复提交到本地 Git；不包含发布包、数据库、截图、日志或密钥，未推送远端。f5e245e 为此前用户授权的本地提交。
 
 ## 后续计划
+- 维护者确认主项目许可，并继续验收 Preview 的菜单/焦点、实际 GitHub 链接及真实服务、多屏交互；后续只从公开 main 发布，保留本机旧历史分支而不推送。界面变化时更新截图与生成脚本坐标，按 docs/IMAGE_ASSETS.md 复核隐私及图示真实性。
 - 本次便携包为 dist/AIScreenShot-win-x64-ball-glass-v2，包含按参考图重绘的白色图形/玻璃渐变/外阴影、最新本地存储缺表保护、文字追问和此前 motion/reading/composer 功能。用户从托盘退出旧实例后启动该包，重点验收悬浮球轮廓/图标比例/高光/不同桌面上的柔和阴影、任意主题色即时预览/保存/关闭撤销、五种状态、阴影开关、动效预设/速度/关闭及实际跨屏 DPI 拖动；原有交互及真实模型路径继续按已有计划验收。不自动启动普通实例或结束旧实例；本次 Git 提交按用户授权执行，旧包保留。
 - 已有包为 dist/AIScreenShot-win-x64-followup-v1，包含 storage-v1/composer-v1/motion-v2；本次缺表保护增强已进入源代码并通过验证，实际使用前按 scripts/publish.ps1 重新发布。用户退出旧版后重点验收第二及后续标签截图发送后继续文字追问、按钮/Ctrl+Enter 和重启恢复。常规页继续验收本地存储统计、打开文件夹及确认清理，保留其他对话和草稿中的图片；继续验收紧凑输入区/Enter 换行、独立动效栏目中的微小弹性回弹、简约淡出/阴影同步、速度/开关/预览/独立保存回退、连续显隐/标签操作、并发回复/流式滚动、混合 DPI 拖动、截图及全屏阅读；不强制结束旧实例。
 - 动效包包含此前 reading-v2 的全屏/新建/历史及输入区箭头透明无描边外观、数学排版与截图传递修复；继续验收图标、截图→切换/新建对话→选择目标工作区→真实发送，以及数学排版、跨段选择与复制图标、停止/关闭重开/重启恢复、历史重命名/删除、标签溢出/主题色、球与栏对齐及真实服务恢复。

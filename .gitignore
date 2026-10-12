@@ -5,3 +5,5 @@ dist/
 .vs/
 *.user
 TestResults/
+# Keep the original local-folder screenshot private; publish the sanitized copy.
+/docs/images/setup4.png
